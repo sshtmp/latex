@@ -690,6 +690,44 @@ assert(
   ghostEd.textContent
 );
 
+ed.textContent = "Hola µ⌐Œσ";
+fireInput(ed);
+cbtn.click();
+assert("live-toggle setup latin", readEd() === "Hola hola", readEd());
+ed.textContent = "Hola hola!";
+fireInput(ed);
+liveBtn.click();
+assert(
+  "live-off keeps newly typed text in cache form",
+  readEd().includes("!"),
+  readEd()
+);
+liveBtn.click();
+assert(
+  "live-on keeps newly typed text",
+  readEd().includes("!"),
+  readEd()
+);
+cbtn.click();
+cbtn.click();
+
+ed.textContent = "Hola µ⌐Œσ";
+fireInput(ed);
+cbtn.click();
+cbtn.click();
+assert("live-on setup latex", readEd() !== "Hola µ⌐Œσ", readEd());
+ed.textContent = readEd() + "!";
+fireInput(ed);
+liveBtn.click();
+assert(
+  "live-off after latex typing keeps exclamation",
+  readEd().includes("!"),
+  readEd()
+);
+liveBtn.click();
+cbtn.click();
+cbtn.click();
+
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
 process.exit(fails.length ? 1 : 0);

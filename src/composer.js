@@ -555,13 +555,41 @@
     setComposerText(editor, display);
   }
 
+  function recoverOriginal(state, current) {
+    if (state.mode === "latex") return Core.decodeToLatin(current);
+    return current;
+  }
+
   function handleLiveToggle() {
-    Core.settings.live = !Core.settings.live;
+    const wasLive = Core.settings.live;
     document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
       const state = states.get(editor);
       if (!state) return;
+      if (syncIfEmpty(editor, state)) return;
+      const current = getComposerTextStrict(editor);
+      if (!current) {
+        state.sending = false;
+        state.pendingSend = false;
+        return;
+      }
+      const wasSending = state.sending || state.pendingSend;
       state.sending = false;
       state.pendingSend = false;
+      if (!wasLive) {
+        if (!wasSending) state.original = current;
+      } else {
+        const expected = displayFor(state);
+        if (current !== expected) {
+          state.original = recoverOriginal(state, current);
+        }
+      }
+    });
+
+    Core.settings.live = !wasLive;
+
+    document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
+      const state = states.get(editor);
+      if (!state) return;
       if (syncIfEmpty(editor, state)) return;
       const display = displayFor(state);
       const current = getComposerTextStrict(editor);
