@@ -276,6 +276,69 @@ assert("no ghost after sob cycle", ed.textContent === "meow\n:sob:", {
   childCount: ed.childNodes.length
 });
 
+ed.textContent = "Hola ";
+fireInput(ed);
+cbtn.click();
+cbtn.click();
+assert("paste setup latex", readEd() === "µ⌐Œσ ", readEd());
+
+function firePaste(el, text) {
+  const ev = new window.Event("paste", { bubbles: true, cancelable: true });
+  const store = { "text/plain": text };
+  ev.clipboardData = {
+    getData(type) {
+      return store[type] || "";
+    },
+    setData(type, v) {
+      store[type] = v;
+    },
+    types: ["text/plain"]
+  };
+  el.dispatchEvent(ev);
+  return store;
+}
+
+const expectedPaste = C.encodeToLatex("mundo");
+const pasteStore = firePaste(ed, "mundo");
+assert(
+  "paste event mutates clipboard",
+  pasteStore["text/plain"] === expectedPaste,
+  pasteStore["text/plain"]
+);
+
+const biPaste = new window.Event("beforeinput", {
+  bubbles: true,
+  cancelable: true
+});
+biPaste.inputType = "insertFromPaste";
+const biStore = { "text/plain": "mundo" };
+biPaste.dataTransfer = {
+  getData(type) {
+    return biStore[type] || "";
+  },
+  setData(type, v) {
+    biStore[type] = v;
+  },
+  types: ["text/plain"]
+};
+ed.dispatchEvent(biPaste);
+if (!biPaste.defaultPrevented) {
+  const ins = biStore["text/plain"] || "mundo";
+  ed.textContent = (computeInnerText(ed) || "") + ins;
+  fireInput(ed);
+}
+assert(
+  "live paste auto-encodes",
+  readEd().includes(expectedPaste),
+  { got: readEd(), want: expectedPaste }
+);
+
+ed.textContent = "";
+fireInput(ed);
+cbtn.click();
+assert("paste block ends disabled", cbtn.textContent === "Encoding disabled", cbtn.textContent);
+assert("paste block editor empty", readEd() === "", readEd());
+
 ed.textContent = "Hola µ⌐Œσ";
 fireInput(ed);
 cbtn.click(); 

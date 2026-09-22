@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.1.0
+// @version      1.1.1
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -140,7 +140,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.1.0";
+  const VERSION = "1.1.1";
 
   const settings = {
     live: true,
@@ -880,7 +880,8 @@
         original: getComposerTextStrict(editor),
         applying: false,
         sending: false,
-        pendingSend: false
+        pendingSend: false,
+        pasteRaw: null
       };
       states.set(editor, s);
     }
@@ -1048,6 +1049,49 @@
     }
 
     if (t === "insertFromPaste" || t === "insertFromDrop") {
+      let pasted = "";
+      try {
+        pasted = e.dataTransfer ? e.dataTransfer.getData("text/plain") : "";
+      } catch (_) {}
+      if (!pasted && typeof e.data === "string") pasted = e.data;
+
+      const rawFromPaste = state.pasteRaw;
+      state.pasteRaw = null;
+
+      const raw = rawFromPaste || pasted;
+      if (!raw) return;
+
+      if (!rawFromPaste) {
+        const sel0 = selectionOffsets(editor);
+        const start0 = sel0 ? sel0.start : cursorOffsetInEditor(editor);
+        const end0 = sel0 && !sel0.collapsed ? sel0.end : start0;
+        insertRangeInOriginal(state, start0, end0, raw);
+      }
+
+      const translated = translateChunk(raw, state.mode);
+      if (pasted === translated) return;
+
+      if (e.dataTransfer) {
+        try {
+          e.dataTransfer.setData("text/plain", translated);
+        } catch (_) {}
+      }
+      if (trySetInputData(e, translated)) return;
+      try {
+        if (
+          e.dataTransfer &&
+          e.dataTransfer.getData("text/plain") === translated
+        ) {
+          return;
+        }
+      } catch (_) {}
+
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      const selOff = selectionOffsets(editor);
+      const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
+      const end = selOff && !selOff.collapsed ? selOff.end : start;
+      replaceRange(editor, start, end, translated);
       return;
     }
 
@@ -1065,6 +1109,8 @@
 
     const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
     if (!text) return;
+
+    state.pasteRaw = text;
 
     const selOff = selectionOffsets(editor);
     const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
