@@ -196,11 +196,87 @@
   function moveCursorToEnd(editor) {
     const sel = window.getSelection();
     if (!sel) return;
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return isSkippedTextNode(node)
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let last = null;
+    let n;
+    while ((n = walker.nextNode())) last = n;
     const range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
+    if (last) {
+      range.setStart(last, last.nodeValue.length);
+      range.collapse(true);
+    } else {
+      const fallback = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+      const first = fallback.nextNode();
+      if (first) {
+        range.setStart(first, first.nodeValue.length);
+        range.collapse(true);
+      } else {
+        range.selectNodeContents(editor);
+        range.collapse(false);
+      }
+    }
     sel.removeAllRanges();
     sel.addRange(range);
+  }
+
+  function placeholderVisible(editor) {
+    const scope = editor.parentElement || editor;
+    const ph =
+      (scope.parentElement &&
+        scope.parentElement.querySelector('[data-slate-placeholder="true"]')) ||
+      scope.querySelector('[data-slate-placeholder="true"]') ||
+      editor.querySelector('[data-slate-placeholder="true"]');
+    if (!ph) return false;
+    if (typeof window.getComputedStyle === "function") {
+      const cs = window.getComputedStyle(ph);
+      if (cs && (cs.display === "none" || cs.visibility === "hidden")) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function stripRootOrphans(editor) {
+    const removed = [];
+    [...editor.childNodes].forEach((child) => {
+      if (child.nodeType === 3) {
+        if ((child.nodeValue || "").replace(/\uFEFF/g, "")) {
+          removed.push(child.nodeValue);
+          child.remove();
+        }
+        return;
+      }
+      if (child.nodeType === 1 && !child.hasAttribute("data-slate-node")) {
+        const hasSlate = child.querySelector("[data-slate-node]");
+        if (!hasSlate && !child.hasAttribute("data-slate-editor")) {
+          if ((child.textContent || "").trim()) {
+            removed.push(child.textContent);
+            child.remove();
+          }
+        }
+      }
+    });
+    return removed;
+  }
+
+  function stripRootOrphansIfStructure(editor) {
+    const hasSlateStructure = !!editor.querySelector("[data-slate-node]");
+    const hasRootText = [...editor.childNodes].some(
+      (c) => c.nodeType === 3 && (c.nodeValue || "").replace(/\uFEFF/g, "")
+    );
+    if (hasSlateStructure && hasRootText) {
+      [...editor.childNodes].forEach((c) => {
+        if (c.nodeType === 3 && (c.nodeValue || "").replace(/\uFEFF/g, "")) {
+          c.remove();
+        }
+      });
+    }
   }
 
   function withApplying(editor, fn) {
@@ -423,13 +499,20 @@
 
   function handleToggle(editor, btn) {
     const state = getState(editor);
-    const currentBefore = getComposerTextStrict(editor);
-    if (currentBefore === "") {
+    if (placeholderVisible(editor)) {
+      stripRootOrphans(editor);
       state.original = "";
       state.sending = false;
       state.pendingSend = false;
-    } else if (state.mode === "disabled" || !Core.settings.live) {
-      state.original = currentBefore;
+    } else {
+      const currentBefore = getComposerTextStrict(editor);
+      if (currentBefore === "") {
+        state.original = "";
+        state.sending = false;
+        state.pendingSend = false;
+      } else if (state.mode === "disabled" || !Core.settings.live) {
+        state.original = currentBefore;
+      }
     }
     state.mode = cycleMode(state.mode);
     setEncodingLabel(btn, state.mode);
@@ -567,6 +650,13 @@
   }
 
   function clearCacheIfEmpty(editor, state) {
+    if (placeholderVisible(editor)) {
+      stripRootOrphans(editor);
+      state.original = "";
+      state.sending = false;
+      state.pendingSend = false;
+      return;
+    }
     if (getComposerTextStrict(editor) === "") {
       state.original = "";
       state.sending = false;
@@ -575,6 +665,13 @@
   }
 
   function syncIfEmpty(editor, state) {
+    if (placeholderVisible(editor)) {
+      stripRootOrphans(editor);
+      state.original = "";
+      state.sending = false;
+      state.pendingSend = false;
+      return true;
+    }
     if (getComposerTextStrict(editor) === "") {
       state.original = "";
       state.sending = false;
@@ -590,6 +687,8 @@
     if (syncIfEmpty(editor, state)) return;
 
     if (state.sending) return;
+
+    stripRootOrphansIfStructure(editor);
 
     if (state.mode === "disabled" || !Core.settings.live) {
       state.original = getComposerTextStrict(editor);

@@ -631,6 +631,53 @@ assert(
   readEd()
 );
 
+const ghostWrap = document.createElement("div");
+ghostWrap.className = "channelTextArea__ghost";
+ghostWrap.innerHTML =
+  '<div class="slateBox">' +
+  '<div data-slate-placeholder="true">Message Group</div>' +
+  '<div data-slate-editor="true" role="textbox" contenteditable="true" id="editor-ghost">' +
+  "wσwσwσwσw" +
+  '<div data-slate-node="element"><span data-slate-node="text">' +
+  '<span data-slate-leaf="true"><span data-slate-zero-width="n" data-slate-length="0">﻿<br></span></span></span></div>' +
+  "</div>" +
+  '<div class="buttons__ghost"><button>E</button></div>' +
+  "</div>";
+document.body.appendChild(ghostWrap);
+await wait(50);
+const ghostEd = document.getElementById("editor-ghost");
+const ghostBtn = ghostWrap.querySelector('[data-latex-ext="composer"]');
+assert("ghost editor has panel", !!ghostBtn, null);
+if (ghostBtn) {
+  ghostBtn.click();
+  assert(
+    "placeholder+orphan: toggle clears ghost",
+    !ghostEd.textContent.includes("wσwσ"),
+    ghostEd.textContent
+  );
+  ghostBtn.click();
+  ghostBtn.click();
+  assert(
+    "placeholder+orphan: full cycle stays clean",
+    !ghostEd.textContent.includes("wσwσ"),
+    ghostEd.textContent
+  );
+}
+
+ghostEd.textContent = "wσwσwσwσw";
+const ghostEnter = new window.KeyboardEvent("keydown", {
+  key: "Enter",
+  bubbles: true,
+  cancelable: true
+});
+ghostEd.dispatchEvent(ghostEnter);
+await wait(900);
+assert(
+  "placeholder+orphan: send clear removes ghost",
+  !ghostEd.textContent.includes("wσwσ"),
+  ghostEd.textContent
+);
+
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
 process.exit(fails.length ? 1 : 0);
