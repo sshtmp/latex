@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Latex",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Latin/Latex (Changed-style) encoder for Discord web",
   "content_scripts": [
     {

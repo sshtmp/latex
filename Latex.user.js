@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.0.2
+// @version      1.0.3
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -781,7 +781,8 @@
         mode: "disabled",
         original: getComposerTextStrict(editor),
         applying: false,
-        sending: false
+        sending: false,
+        pendingSend: false
       };
       states.set(editor, s);
     }
@@ -796,8 +797,13 @@
 
   function handleToggle(editor, btn) {
     const state = getState(editor);
-    if (state.mode === "disabled" || !Core.settings.live) {
-      state.original = getComposerTextStrict(editor);
+    const currentBefore = getComposerTextStrict(editor);
+    if (currentBefore === "") {
+      state.original = "";
+      state.sending = false;
+      state.pendingSend = false;
+    } else if (state.mode === "disabled" || !Core.settings.live) {
+      state.original = currentBefore;
     }
     state.mode = cycleMode(state.mode);
     setEncodingLabel(btn, state.mode);
@@ -814,6 +820,8 @@
       const state = states.get(editor);
       if (!state) return;
       state.sending = false;
+      state.pendingSend = false;
+      if (syncIfEmpty(editor, state)) return;
       const display = displayFor(state);
       const current = getComposerTextStrict(editor);
       if (display !== current) setComposerText(editor, display);
@@ -841,6 +849,13 @@
     state.original = raw;
     state.sending = true;
     setComposerText(editor, target);
+  }
+
+  function scheduleSendClear(editor, state) {
+    state.pendingSend = true;
+    const tryClear = () => clearCacheIfEmpty(editor, state);
+    tryClear();
+    [0, 50, 150, 400, 800].forEach((ms) => setTimeout(tryClear, ms));
   }
 
   function syncOriginalOnly(editor, state) {
@@ -928,19 +943,27 @@
   function clearCacheIfEmpty(editor, state) {
     if (getComposerTextStrict(editor) === "") {
       state.original = "";
+      state.sending = false;
+      state.pendingSend = false;
     }
   }
 
-function onEditorInput(editor, state) {
+  function syncIfEmpty(editor, state) {
+    if (getComposerTextStrict(editor) === "") {
+      state.original = "";
+      state.sending = false;
+      state.pendingSend = false;
+      return true;
+    }
+    return false;
+  }
+
+  function onEditorInput(editor, state) {
     if (state.applying) return;
 
-    if (state.sending) {
-      if (getComposerTextStrict(editor) === "") {
-        state.original = "";
-        state.sending = false;
-      }
-      return;
-    }
+    if (syncIfEmpty(editor, state)) return;
+
+    if (state.sending) return;
 
     if (state.mode === "disabled" || !Core.settings.live) {
       state.original = getComposerTextStrict(editor);
@@ -998,9 +1021,11 @@ function onEditorInput(editor, state) {
         if (!editor) return;
         const state = states.get(editor);
         if (!state) return;
-        clearCacheIfEmpty(editor, state);
-        setTimeout(() => clearCacheIfEmpty(editor, state), 0);
-        setTimeout(() => clearCacheIfEmpty(editor, state), 50);
+        if (getComposerTextStrict(editor) !== "") {
+          scheduleSendClear(editor, state);
+        } else {
+          clearCacheIfEmpty(editor, state);
+        }
       },
       true
     );
@@ -1029,6 +1054,9 @@ function onEditorInput(editor, state) {
 
     bindGlobal();
 
+    const state = getState(editor);
+    if (state.pendingSend || state.sending) clearCacheIfEmpty(editor, state);
+
     let panel = host.querySelector('[data-latex-ext="panel"]');
     if (panel && panel._latexEditor === editor) {
       if (!host.contains(panel)) host.appendChild(panel);
@@ -1039,8 +1067,6 @@ function onEditorInput(editor, state) {
     host
       .querySelectorAll(':scope > [data-latex-ext="composer"]')
       .forEach((b) => b.remove());
-
-    const state = getState(editor);
 
     panel = document.createElement("div");
     panel.className = "latex-ext-panel";

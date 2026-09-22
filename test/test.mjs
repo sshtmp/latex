@@ -565,12 +565,52 @@ if (bomBtn) {
   bomBtn.click();
   bomBtn.click();
   assert(
-    "bom cycle back no duplicate",
+  "bom cycle back no duplicate",
     (bomEditor.textContent.match(/hola/g) || []).length === 1 &&
       (bomEditor.textContent.match(/mundo/g) || []).length === 1,
     bomEditor.textContent
   );
 }
+
+ed.textContent = "Hola µ⌐Œσ";
+fireInput(ed);
+cbtn.click();
+assert("post-send setup latin", readEd() === "Hola hola", readEd());
+ed.textContent = "";
+assert("cleared without input event", readEd() === "", readEd());
+cbtn.click();
+assert(
+  "empty editor after send: encode toggle no ghost",
+  readEd() === "",
+  readEd()
+);
+cbtn.click();
+assert(
+  "empty editor after send: back to disabled no ghost",
+  readEd() === "",
+  readEd()
+);
+
+ed.textContent = "send me";
+fireInput(ed);
+cbtn.click();
+assert("send path latin", readEd() === "send me", readEd());
+ed.dispatchEvent(
+  new window.KeyboardEvent("keydown", {
+    key: "Enter",
+    bubbles: true,
+    cancelable: true
+  })
+);
+ed.textContent = "";
+await wait(900);
+cbtn.click();
+cbtn.click();
+assert(
+  "after Enter+empty: no ghost restore",
+  readEd() === "",
+  readEd()
+);
 
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
