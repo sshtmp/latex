@@ -405,7 +405,7 @@ assert(
 );
 assert("edited text intact", content4.textContent.includes("(edited)"), content4.textContent);
 assert("edited not translated", !content4.textContent.includes("⊘") && content4.textContent.includes("(edited)"), content4.textContent);
-mbtn4.click(); 
+mbtn4.click();
 assert("manual restore removes badge", !content4.querySelector('[data-latex-ext="badge"]'), content4.innerHTML);
 assert("manual restore keeps edited", content4.textContent.includes("(edited)"), content4.textContent);
 
@@ -512,6 +512,25 @@ assert(
 mbtn2.click();
 assert("embed restore", embedDesc.textContent === "Descripcion del embed", embedDesc.textContent);
 assert("component restore", compBtn.textContent === "Aceptar cosa", compBtn.textContent);
+
+const content5 = document.getElementById("message-content-111");
+mbtn1.click();
+assert("manual on 111", content5.textContent.includes("σ"), content5.textContent);
+msgBtn.click();
+await wait(50);
+assert(
+  "msg translation off does not revert manual",
+  content5.textContent.includes("σ"),
+  content5.textContent
+);
+msgBtn.click();
+await wait(50);
+assert(
+  "msg translation on leaves manual alone",
+  content5.textContent.includes("σ"),
+  content5.textContent
+);
+mbtn1.click();
 
 const panelHost = cbtn.closest('[data-latex-ext="panel"]') || cbtn.parentElement;
 const panelNodeBefore = panelHost;

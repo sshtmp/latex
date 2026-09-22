@@ -74,40 +74,6 @@
     btn.textContent = mode === "latex" ? "Latex" : "Latin";
   }
 
-  function ensureMsgPanel(li, container) {
-    let panel = container.querySelector('[data-latex-ext="msg-panel"]');
-    if (panel) return panel;
-
-    panel = document.createElement("div");
-    panel.className = "latex-ext-panel latex-ext-msg-panel";
-    panel.dataset.latexExt = "msg-panel";
-
-    const title = document.createElement("span");
-    title.className = "latex-ext-title";
-    title.textContent = "LATEX v" + Core.VERSION;
-    panel.appendChild(title);
-
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "latex-ext-btn";
-    btn.dataset.latexExt = "msg";
-    btn.title = "Toggle this message between Latin and Latex";
-    btn.setAttribute(
-      "aria-label",
-      "Toggle this message between Latin and Latex"
-    );
-    setButtonMode(btn, Core.detect(combinedText(li)));
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleToggle(li, btn);
-    });
-    panel.appendChild(btn);
-
-    states.set(li, states.get(li) || { saved: null, applied: null });
-    return panel;
-  }
-
   function findMsgPanel(li) {
     return li.querySelector('[data-latex-ext="msg-panel"]');
   }
@@ -195,6 +161,7 @@
     if (state) {
       state.saved = null;
       state.applied = null;
+      state.auto = false;
       states.set(li, state);
     }
     ensureBadge(li, null);
@@ -217,7 +184,8 @@
       return;
     }
 
-    applyTransform(li, btn);
+    const applied = applyTransform(li, btn);
+    applied.auto = false;
   }
 
   function maybeAutoTranslate(li) {
@@ -228,13 +196,14 @@
     if (!raw.trim()) return;
     if (Core.detect(raw) !== "latex") return;
     const btn = li.querySelector('[data-latex-ext="msg"]');
-    applyTransform(li, btn, "latin");
+    const applied = applyTransform(li, btn, "latin");
+    applied.auto = true;
   }
 
   function revertAutoTranslated() {
     document.querySelectorAll(MSG_SEL).forEach((li) => {
       const state = states.get(li);
-      if (!state || !state.saved || !state.applied) return;
+      if (!state || !state.saved || !state.applied || !state.auto) return;
       restoreTransform(li, li.querySelector('[data-latex-ext="msg"]'));
     });
   }

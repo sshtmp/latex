@@ -203,27 +203,6 @@
     sel.addRange(range);
   }
 
-  function findTextPos(root, targetOffset) {
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-    if (targetOffset <= 0) {
-      const first = walker.nextNode();
-      return first ? { node: first, offset: 0 } : null;
-    }
-    let acc = 0;
-    let node;
-    let last = null;
-    while ((node = walker.nextNode())) {
-      last = node;
-      const len = node.nodeValue.length;
-      if (acc + len >= targetOffset) {
-        return { node, offset: targetOffset - acc };
-      }
-      acc += len;
-    }
-    if (last) return { node: last, offset: last.nodeValue.length };
-    return null;
-  }
-
   function withApplying(editor, fn) {
     const st = states.get(editor);
     if (st) st.applying = true;
@@ -619,10 +598,6 @@
 
     const expected = displayFor(state);
     const current = getComposerTextStrict(editor);
-    if (current === "") {
-      state.original = "";
-      return;
-    }
     if (current === expected) return;
 
     const diff = computeDiff(expected, current);
