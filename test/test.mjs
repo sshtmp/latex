@@ -513,6 +513,65 @@ mbtn2.click();
 assert("embed restore", embedDesc.textContent === "Descripcion del embed", embedDesc.textContent);
 assert("component restore", compBtn.textContent === "Aceptar cosa", compBtn.textContent);
 
+const panelHost = cbtn.closest('[data-latex-ext="panel"]') || cbtn.parentElement;
+const panelNodeBefore = panelHost;
+const panelParentBefore = panelHost.parentElement;
+if (window.__latexExtComposerScan) window.__latexExtComposerScan();
+if (window.__latexExtMessagesScan) window.__latexExtMessagesScan();
+await wait(20);
+assert(
+  "panel not moved on rescan",
+  panelNodeBefore.parentElement === panelParentBefore &&
+    panelNodeBefore.isConnected,
+  {
+    connected: panelNodeBefore.isConnected,
+    parentSame: panelNodeBefore.parentElement === panelParentBefore
+  }
+);
+
+const styleBefore = document.getElementById("latex-ext-styles");
+if (styleBefore) styleBefore.remove();
+if (window.__latexExtComposerScan) window.__latexExtComposerScan();
+assert("styles re-injected", !!document.getElementById("latex-ext-styles"), null);
+
+const bomEditor = document.createElement("div");
+bomEditor.setAttribute("data-slate-editor", "true");
+bomEditor.setAttribute("role", "textbox");
+bomEditor.setAttribute("contenteditable", "true");
+bomEditor.innerHTML =
+  'hola' +
+  '<span data-slate-zero-width="z" data-slate-length="0">﻿</span>' +
+  '<span data-slate-node="text"><span data-slate-leaf="true">' +
+  '<span data-slate-zero-width="n" data-slate-length="0">﻿<br></span></span></span>' +
+  'mundo';
+const bomWrap = document.createElement("div");
+bomWrap.className = "channelTextArea__bom";
+bomWrap.innerHTML = '<div class="buttons__bom"><button>E</button></div>';
+bomWrap.insertBefore(bomEditor, bomWrap.firstChild);
+document.body.appendChild(bomWrap);
+await wait(50);
+const bomBtn = bomWrap.querySelector('[data-latex-ext="composer"]');
+assert("bom editor has panel", !!bomBtn, null);
+if (bomBtn) {
+  bomBtn.click();
+  const latinBom = bomBtn.closest(".channelTextArea__bom")
+    ? bomEditor.textContent
+    : bomEditor.textContent;
+  assert(
+    "bom cycle latin keeps text",
+    latinBom.includes("hola") && latinBom.includes("mundo"),
+    JSON.stringify(latinBom)
+  );
+  bomBtn.click();
+  bomBtn.click();
+  assert(
+    "bom cycle back no duplicate",
+    (bomEditor.textContent.match(/hola/g) || []).length === 1 &&
+      (bomEditor.textContent.match(/mundo/g) || []).length === 1,
+    bomEditor.textContent
+  );
+}
+
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
 process.exit(fails.length ? 1 : 0);

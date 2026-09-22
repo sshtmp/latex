@@ -1,6 +1,9 @@
 (function () {
   "use strict";
 
+  if (window.__latexExtMessages) return;
+  window.__latexExtMessages = true;
+
   const Core = window.LatexCore;
   if (!Core) return;
 
@@ -110,14 +113,16 @@
   }
 
   function placePanel(panel, btn, sep, container) {
-    if (container.firstElementChild !== panel) container.prepend(panel);
+    if (!container.contains(panel)) container.prepend(panel);
     if (!sep) {
       sep = document.createElement("div");
       sep.className = "latex-ext-sep";
       sep.dataset.latexExt = "sep";
       sep.setAttribute("aria-hidden", "true");
     }
-    if (panel.nextSibling !== sep) container.insertBefore(sep, panel.nextSibling);
+    if (sep.parentNode !== container || panel.nextSibling !== sep) {
+      container.insertBefore(sep, panel.nextSibling);
+    }
     void btn;
   }
 
@@ -329,4 +334,5 @@
     childList: true,
     subtree: true
   });
+  window.__latexExtMessagesScan = scan;
 })();

@@ -1,10 +1,15 @@
 (function () {
   "use strict";
 
+  if (window.__latexExtComposer) return;
+  window.__latexExtComposer = true;
+
   const Core = window.LatexCore;
   if (!Core) return;
 
   const EDITOR_SEL = '[data-slate-editor="true"], [role="textbox"][contenteditable="true"]';
+  const SKIP_SEL =
+    "[data-slate-spacer], [data-slate-zero-width], [class*='hiddenVisually'], [aria-hidden='true']";
   const states = new WeakMap();
   let bound = false;
 
@@ -47,11 +52,7 @@
         el.replaceWith(document.createTextNode(name));
       });
 
-    clone
-      .querySelectorAll(
-        "[data-slate-spacer], [class*='hiddenVisually'], [aria-hidden='true']"
-      )
-      .forEach((el) => el.remove());
+    clone.querySelectorAll(SKIP_SEL).forEach((el) => el.remove());
 
     clone.querySelectorAll("br").forEach((br) => {
       br.replaceWith(document.createTextNode("\n"));
@@ -80,6 +81,82 @@
 
   function getComposerTextStrict(editor) {
     return getComposerText(editor).replace(/\n$/, "");
+  }
+
+  function isSkippedTextNode(node) {
+    const parent = node.parentElement;
+    if (!parent) return true;
+    if (parent.closest(SKIP_SEL)) return true;
+    if (parent.hasAttribute && parent.hasAttribute("data-slate-zero-width")) {
+      return true;
+    }
+    let p = parent;
+    while (p && p !== node.ownerDocument) {
+      if (p.hasAttribute && p.hasAttribute("data-slate-zero-width")) return true;
+      p = p.parentElement;
+    }
+    return false;
+  }
+
+  function cleanTextLen(s) {
+    return String(s).replace(/\uFEFF/g, "").length;
+  }
+
+  function cleanString(s) {
+    return String(s).replace(/\uFEFF/g, "");
+  }
+
+  function findTextPos(root, targetOffset) {
+    if (targetOffset <= 0) {
+      const firstWalker = document.createTreeWalker(
+        root,
+        NodeFilter.SHOW_TEXT,
+        {
+          acceptNode(node) {
+            return isSkippedTextNode(node)
+              ? NodeFilter.FILTER_REJECT
+              : NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+      const first = firstWalker.nextNode();
+      return first ? { node: first, offset: 0 } : null;
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return isSkippedTextNode(node)
+          ? NodeFilter.FILTER_REJECT
+          : NodeFilter.FILTER_ACCEPT;
+      }
+    });
+    let acc = 0;
+    let node;
+    let last = null;
+    while ((node = walker.nextNode())) {
+      last = node;
+      const raw = node.nodeValue || "";
+      const clean = cleanString(raw);
+      const cleanLen = clean.length;
+      if (cleanLen === 0) continue;
+      if (acc + cleanLen >= targetOffset) {
+        const delta = targetOffset - acc;
+        let rawOffset = 0;
+        let seen = 0;
+        while (rawOffset < raw.length && seen < delta) {
+          if (raw[rawOffset] !== "\uFEFF") seen++;
+          rawOffset++;
+        }
+        return { node, offset: rawOffset };
+      }
+      acc += cleanLen;
+    }
+    if (last) {
+      const raw = last.nodeValue || "";
+      let rawOffset = raw.length;
+      while (rawOffset > 0 && raw[rawOffset - 1] === "\uFEFF") rawOffset--;
+      return { node: last, offset: rawOffset };
+    }
+    return null;
   }
 
   function displayFor(state) {
@@ -174,13 +251,18 @@
     }
 
     editor.focus();
-    selectAll(editor);
-    withApplying(editor, () => {
-      if (clean === "") exec("delete");
-      else exec("insertText", clean);
-    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      selectAll(editor);
+      withApplying(editor, () => {
+        if (clean === "") exec("delete");
+        else exec("insertText", clean);
+      });
+      if (getComposerTextStrict(editor) === clean) {
+        moveCursorToEnd(editor);
+        return true;
+      }
+    }
     moveCursorToEnd(editor);
-
     return getComposerTextStrict(editor) === clean;
   }
 
@@ -199,8 +281,9 @@
     const pre = range.cloneRange();
     pre.selectNodeContents(editor);
     pre.setEnd(range.startContainer, range.startOffset);
-    const start = pre.toString().length;
-    return { start, end: start + range.toString().length, collapsed: range.collapsed };
+    const start = cleanTextLen(pre.toString());
+    const end = start + cleanTextLen(range.toString());
+    return { start, end, collapsed: range.collapsed };
   }
 
   function replaceRange(editor, start, end, replacement) {
@@ -234,7 +317,7 @@
     const pre = range.cloneRange();
     pre.selectNodeContents(editor);
     pre.setEnd(range.startContainer, range.startOffset);
-    return pre.toString().length;
+    return cleanTextLen(pre.toString());
   }
 
   function computeDiff(expected, current) {
@@ -595,7 +678,7 @@ function onEditorInput(editor, state) {
 
     let panel = host.querySelector('[data-latex-ext="panel"]');
     if (panel && panel._latexEditor === editor) {
-      if (host.firstElementChild !== panel) host.prepend(panel);
+      if (!host.contains(panel)) host.appendChild(panel);
       refreshPanelLabels(panel);
       return;
     }
@@ -705,4 +788,5 @@ function onEditorInput(editor, state) {
     childList: true,
     subtree: true
   });
+  window.__latexExtComposerScan = scan;
 })();

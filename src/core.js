@@ -1,6 +1,8 @@
 (function () {
   "use strict";
 
+  if (window.LatexCore) return;
+
   const MAP = {
     A: "σ", a: "σ",
     B: "£", b: "£",
@@ -126,7 +128,11 @@
 
   function injectStyles(css) {
     const ID = "latex-ext-styles";
-    if (document.getElementById(ID)) return;
+    const existing = document.getElementById(ID);
+    if (existing) {
+      if (existing.textContent !== css) existing.textContent = css;
+      return;
+    }
     const style = document.createElement("style");
     style.id = ID;
     style.textContent = css;
