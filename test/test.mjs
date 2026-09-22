@@ -132,7 +132,8 @@ function simulateUserType(el, ch) {
   ev.data = ch;
   el.dispatchEvent(ev);
   if (!ev.defaultPrevented) {
-    el.textContent = (computeInnerText(el) || "") + ch;
+    const ins = ev.data != null ? String(ev.data) : ch;
+    el.textContent = (computeInnerText(el) || "") + ins;
     fireInput(el);
   }
 }
@@ -161,8 +162,8 @@ assert("encoding label disabled", cbtn.textContent === "Encoding disabled", cbtn
 
 const liveBtn = cbtn.parentElement.querySelector('[data-latex-ext="live"]');
 const msgBtn = cbtn.parentElement.querySelector('[data-latex-ext="msgauto"]');
-assert("live default on", liveBtn && liveBtn.textContent === "Live translation enabled", liveBtn?.textContent);
-assert("msg default off", msgBtn && msgBtn.textContent === "Message translation disabled", msgBtn?.textContent);
+assert("live default on", liveBtn && liveBtn.textContent === "Live encoding enabled", liveBtn?.textContent);
+assert("msg default off", msgBtn && msgBtn.textContent === "Message encoding disabled", msgBtn?.textContent);
 
 const probe = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 probe.inputType = "insertText";
@@ -186,14 +187,25 @@ const t1 = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 t1.inputType = "insertText";
 t1.data = " ";
 ed.dispatchEvent(t1);
-assert("space prevented", t1.defaultPrevented === true, t1.defaultPrevented);
+assert("space not blocked", t1.defaultPrevented === false, t1.defaultPrevented);
+if (!t1.defaultPrevented) {
+  const ins = t1.data != null ? String(t1.data) : " ";
+  ed.textContent = (computeInnerText(ed) || "") + ins;
+  fireInput(ed);
+}
 assert("space inserted translated", readEd() === "Hola hola ", JSON.stringify(readEd()));
 
 const t2 = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 t2.inputType = "insertText";
 t2.data = "β";
 ed.dispatchEvent(t2);
-assert("β prevented", t2.defaultPrevented === true, t2.defaultPrevented);
+assert("β not blocked", t2.defaultPrevented === false, t2.defaultPrevented);
+assert("β data mutated to m", t2.data === "m", t2.data);
+if (!t2.defaultPrevented) {
+  const ins = t2.data != null ? String(t2.data) : "β";
+  ed.textContent = (computeInnerText(ed) || "") + ins;
+  fireInput(ed);
+}
 assert("β→m live", readEd() === "Hola hola m", readEd());
 
 typeStr(ed, "ε⌐w");
@@ -295,7 +307,7 @@ fireInput(ed);
 cbtn.click(); 
 assert("pre-live-off latin", readEd() === "Hola hola", readEd());
 liveBtn.click();
-assert("live label disabled", liveBtn.textContent === "Live translation disabled", liveBtn.textContent);
+assert("live label disabled", liveBtn.textContent === "Live encoding disabled", liveBtn.textContent);
 assert("live-off reverts to original", readEd() === "Hola µ⌐Œσ", readEd());
 
 const rawInsert = new window.Event("beforeinput", { bubbles: true, cancelable: true });
@@ -319,7 +331,7 @@ ed.dispatchEvent(
 assert("live-off prepareSend encodes", readEd() === "Hola holaz", readEd());
 
 liveBtn.click();
-assert("live re-enabled label", liveBtn.textContent === "Live translation enabled", liveBtn.textContent);
+assert("live re-enabled label", liveBtn.textContent === "Live encoding enabled", liveBtn.textContent);
 cbtn.click(); 
 assert("latin→latex after live-off", readEd() === "µ⌐Œσ µ⌐Œσ√", readEd());
 cbtn.click(); 
@@ -376,7 +388,7 @@ cbtn.click();
 ed.textContent = "";
 fireInput(ed);
 msgBtn.click();
-assert("msg label enabled", msgBtn.textContent === "Message translation enabled", msgBtn.textContent);
+assert("msg label enabled", msgBtn.textContent === "Message encoding enabled", msgBtn.textContent);
 
 const li3 = document.getElementById("chat-messages-333");
 await wait(50);
@@ -386,7 +398,7 @@ assert("auto translate latex msg", content3.textContent.includes("si estas"), co
 assert("auto badge latex", badge3 && badge3.textContent === "(latex)", badge3?.textContent);
 
 msgBtn.click();
-assert("msg label disabled", msgBtn.textContent === "Message translation disabled", msgBtn.textContent);
+assert("msg label disabled", msgBtn.textContent === "Message encoding disabled", msgBtn.textContent);
 await wait(50);
 assert("msg restore after disable", content3.textContent.includes("Φ∩"), content3.textContent);
 assert("badge removed", !content3.querySelector('[data-latex-ext="badge"]'), content3.innerHTML);

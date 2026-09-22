@@ -306,19 +306,51 @@
     }
 
     editor.focus();
-    for (let attempt = 0; attempt < 2; attempt++) {
+    let handled = false;
+    withApplying(editor, () => {
       selectAll(editor);
-      withApplying(editor, () => {
+      handled = dispatchBeforeInput(editor, "insertText", clean);
+      if (!handled) {
+        selectAll(editor);
         if (clean === "") exec("delete");
         else exec("insertText", clean);
-      });
-      if (getComposerTextStrict(editor) === clean) {
-        moveCursorToEnd(editor);
-        return true;
       }
-    }
+    });
     moveCursorToEnd(editor);
     return getComposerTextStrict(editor) === clean;
+  }
+
+  function dispatchBeforeInput(editor, inputType, data) {
+    let ev;
+    try {
+      ev = new InputEvent("beforeinput", {
+        bubbles: true,
+        cancelable: true,
+        inputType,
+        data
+      });
+    } catch (_) {
+      ev = new Event("beforeinput", { bubbles: true, cancelable: true });
+      ev.inputType = inputType;
+      ev.data = data;
+    }
+    return editor.dispatchEvent(ev) === false;
+  }
+
+  function trySetInputData(e, value) {
+    try {
+      Object.defineProperty(e, "data", {
+        value,
+        configurable: true,
+        writable: true
+      });
+      if (e.data === value) return true;
+    } catch (_) {}
+    try {
+      e.data = value;
+      if (e.data === value) return true;
+    } catch (_) {}
+    return false;
   }
 
   function insertAtCursor(editor, text) {
@@ -447,16 +479,16 @@
     const on = Core.settings.live;
     btn.dataset.state = on ? "on" : "off";
     btn.textContent = on
-      ? "Live translation enabled"
-      : "Live translation disabled";
+      ? "Live encoding enabled"
+      : "Live encoding disabled";
   }
 
   function setMessageLabel(btn) {
     const on = Core.settings.message;
     btn.dataset.state = on ? "on" : "off";
     btn.textContent = on
-      ? "Message translation enabled"
-      : "Message translation disabled";
+      ? "Message encoding enabled"
+      : "Message encoding disabled";
   }
 
   function refreshAllPanels() {
@@ -597,30 +629,33 @@
     const t = e.inputType || "";
 
     if (t === "insertText" && e.data != null) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
+      const raw = e.data;
       const selOff = selectionOffsets(editor);
       const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
       const end = selOff && !selOff.collapsed ? selOff.end : start;
-      insertRangeInOriginal(state, start, end, e.data);
-      insertAtCursor(editor, translateChunk(e.data, state.mode));
+      insertRangeInOriginal(state, start, end, raw);
+      const translated = translateChunk(raw, state.mode);
+      if (translated !== raw && !trySetInputData(e, translated)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (dispatchBeforeInput(editor, "insertText", translated)) {
+          withApplying(editor, () => {
+            exec("insertText", translated);
+          });
+        }
+      }
       return;
     }
 
     if (t === "insertLineBreak" || t === "insertParagraph") {
-      e.preventDefault();
-      e.stopImmediatePropagation();
       const selOff = selectionOffsets(editor);
       const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
       const end = selOff && !selOff.collapsed ? selOff.end : start;
       insertRangeInOriginal(state, start, end, "\n");
-      insertAtCursor(editor, "\n");
       return;
     }
 
     if (t === "insertFromPaste" || t === "insertFromDrop") {
-      e.preventDefault();
-      e.stopImmediatePropagation();
       return;
     }
 
@@ -636,9 +671,6 @@
     if (!state || state.applying || state.mode === "disabled") return;
     if (!Core.settings.live) return;
 
-    e.preventDefault();
-    e.stopImmediatePropagation();
-
     const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
     if (!text) return;
 
@@ -646,7 +678,13 @@
     const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
     const end = selOff && !selOff.collapsed ? selOff.end : start;
     insertRangeInOriginal(state, start, end, text);
-    insertAtCursor(editor, translateChunk(text, state.mode));
+
+    const translated = translateChunk(text, state.mode);
+    if (translated !== text && e.clipboardData) {
+      try {
+        e.clipboardData.setData("text/plain", translated);
+      } catch (_) {}
+    }
   }
 
   function clearCacheIfEmpty(editor, state) {
@@ -755,9 +793,16 @@
       (e) => {
         const el = e.target;
         if (!(el instanceof Element)) return;
-        const btn = el.closest('button[type="submit"]');
-        if (!btn) return;
-        const scope = btn.closest("form") || btn.closest('[class*="channelTextArea"]');
+        const btn = el.closest("button, [role='button']");
+        if (!btn || btn.closest("[data-latex-ext]")) return;
+        const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
+        const isSend =
+          btn.matches('button[type="submit"]') ||
+          aria.includes("send") ||
+          aria.includes("enviar");
+        if (!isSend) return;
+        const scope =
+          btn.closest("form") || btn.closest('[class*="channelTextArea"]');
         const editor = scope && scope.querySelector(EDITOR_SEL);
         if (!editor) return;
         const state = states.get(editor);
@@ -816,10 +861,10 @@
     liveBtn.type = "button";
     liveBtn.className = "latex-ext-btn";
     liveBtn.dataset.latexExt = "live";
-    liveBtn.title = "Auto-translate while typing; off translates only on send";
+    liveBtn.title = "Auto-encode while typing; off encodes only on send";
     liveBtn.setAttribute(
       "aria-label",
-      "Auto-translate while typing; off translates only on send"
+      "Auto-encode while typing; off encodes only on send"
     );
     liveBtn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -832,8 +877,8 @@
     msgBtn.type = "button";
     msgBtn.className = "latex-ext-btn";
     msgBtn.dataset.latexExt = "msgauto";
-    msgBtn.title = "Auto-translate incoming Latex messages";
-    msgBtn.setAttribute("aria-label", "Auto-translate incoming Latex messages");
+    msgBtn.title = "Auto-encode incoming Latex messages";
+    msgBtn.setAttribute("aria-label", "Auto-encode incoming Latex messages");
     msgBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
