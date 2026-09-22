@@ -84,7 +84,7 @@
 
     const title = document.createElement("span");
     title.className = "latex-ext-title";
-    title.textContent = "LATEX v1";
+    title.textContent = "LATEX v" + Core.VERSION;
     panel.appendChild(title);
 
     const btn = document.createElement("button");
@@ -266,7 +266,7 @@
 
     const title = document.createElement("span");
     title.className = "latex-ext-title";
-    title.textContent = "LATEX v1";
+    title.textContent = "LATEX v" + Core.VERSION;
     panel.appendChild(title);
 
     btn = document.createElement("button");

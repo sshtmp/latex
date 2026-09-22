@@ -138,6 +138,8 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
+  const VERSION = "1.0.3";
+
   const settings = {
     live: true,
     message: false
@@ -336,6 +338,7 @@
   `;
 
   window.LatexCore = {
+    VERSION,
     MAP,
     LATEX_CHARS,
     REVERSE,
@@ -1075,7 +1078,7 @@
 
     const title = document.createElement("span");
     title.className = "latex-ext-title";
-    title.textContent = "LATEX v1";
+    title.textContent = "LATEX v" + Core.VERSION;
     panel.appendChild(title);
 
     const encBtn = document.createElement("button");
@@ -1256,7 +1259,7 @@
 
     const title = document.createElement("span");
     title.className = "latex-ext-title";
-    title.textContent = "LATEX v1";
+    title.textContent = "LATEX v" + Core.VERSION;
     panel.appendChild(title);
 
     const btn = document.createElement("button");
@@ -1438,7 +1441,7 @@
 
     const title = document.createElement("span");
     title.className = "latex-ext-title";
-    title.textContent = "LATEX v1";
+    title.textContent = "LATEX v" + Core.VERSION;
     panel.appendChild(title);
 
     btn = document.createElement("button");

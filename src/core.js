@@ -121,6 +121,8 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
+  const VERSION = "1.0.3";
+
   const settings = {
     live: true,
     message: false
@@ -319,6 +321,7 @@
   `;
 
   window.LatexCore = {
+    VERSION,
     MAP,
     LATEX_CHARS,
     REVERSE,

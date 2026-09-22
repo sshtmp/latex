@@ -156,7 +156,7 @@ assert("decode keeps shortcode", C.decodeToLatin(":sob: µ⌐Œσ") === ":sob: h
 
 assert("default Disabled", cbtn.dataset.mode === "disabled", cbtn.textContent);
 assert("first child panel", cbtn.parentElement.firstElementChild === cbtn.parentElement.querySelector(".latex-ext-title"), null);
-assert("panel title", cbtn.parentElement.querySelector(".latex-ext-title").textContent === "LATEX v1", cbtn.parentElement.querySelector(".latex-ext-title")?.textContent);
+assert("panel title", cbtn.parentElement.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, cbtn.parentElement.querySelector(".latex-ext-title")?.textContent);
 assert("encoding label disabled", cbtn.textContent === "Encoding disabled", cbtn.textContent);
 
 const liveBtn = cbtn.parentElement.querySelector('[data-latex-ext="live"]');
@@ -485,7 +485,7 @@ const mbtn1 = li1.querySelector('[data-latex-ext="msg"]');
 const mpanel1 = li1.querySelector('[data-latex-ext="msg-panel"]');
 const actions1 = li1.querySelector('[class*="buttonsInner"]');
 assert("msg panel exists", !!mpanel1, null);
-assert("msg panel title", mpanel1 && mpanel1.querySelector(".latex-ext-title").textContent === "LATEX v1", mpanel1?.querySelector(".latex-ext-title")?.textContent);
+assert("msg panel title", mpanel1 && mpanel1.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, mpanel1?.querySelector(".latex-ext-title")?.textContent);
 assert("msg panel first", actions1 && actions1.firstElementChild === mpanel1, actions1?.firstElementChild?.className);
 assert("msg btn inside panel", mbtn1 && mbtn1.parentElement === mpanel1, null);
 assert("msg btn label initial", mbtn1 && mbtn1.textContent === "Latin", mbtn1?.textContent);
