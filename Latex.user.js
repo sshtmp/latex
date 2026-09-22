@@ -5,8 +5,6 @@
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
-// @match        https://ptb.discord.com/*
-// @match        https://canary.discord.com/*
 // @run-at       document-idle
 // @grant        none
 // @downloadURL  https://raw.githubusercontent.com/sshtmp/latex/main/Latex.user.js
