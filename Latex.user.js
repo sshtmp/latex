@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.0.8
+// @version      1.1.0
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -140,7 +140,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.0.8";
+  const VERSION = "1.1.0";
 
   const settings = {
     live: true,
