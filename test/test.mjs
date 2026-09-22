@@ -500,13 +500,22 @@ assert("msg panel exists", !!mpanel1, null);
 assert("msg panel title", mpanel1 && mpanel1.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, mpanel1?.querySelector(".latex-ext-title")?.textContent);
 assert("msg panel first", actions1 && actions1.firstElementChild === mpanel1, actions1?.firstElementChild?.className);
 assert("msg btn inside panel", mbtn1 && mbtn1.parentElement === mpanel1, null);
-assert("msg btn label initial", mbtn1 && mbtn1.textContent === "Latin", mbtn1?.textContent);
+assert("msg btn label initial mixed", mbtn1 && mbtn1.textContent === "Mixed", mbtn1?.textContent);
+assert("detect mixed", C.detect("Œβσ hola") === "mixed", C.detect("Œβσ hola"));
+assert("detect pure latex", C.detect("Φ∩ εΦ╪σΦ") === "latex", C.detect("Φ∩ εΦ╪σΦ"));
+assert("detect pure latin", C.detect("hello world") === "latin", C.detect("hello world"));
 const content1 = document.getElementById("message-content-111");
 mbtn1.click();
-assert("msg transform", content1.textContent.includes("σ"), content1.textContent);
-assert("msg btn after transform", mbtn1.textContent === "Latex", mbtn1.textContent);
+assert("mixed→latin converts latex part only", content1.textContent.includes("lma") && content1.textContent.includes("hola"), content1.textContent);
+assert("mixed badge", content1.querySelector('[data-latex-ext="badge"]')?.textContent === "(mixed)", content1.querySelector('[data-latex-ext="badge"]')?.textContent);
+assert("msg btn after mixed→latin", mbtn1.textContent === "Latin", mbtn1.textContent);
 mbtn1.click();
-assert("msg restore", content1.textContent.includes("Œβσ"), content1.textContent);
+assert("latin→latex encodes all", !content1.textContent.includes("hola") && content1.textContent.includes("µ⌐Œσ"), content1.textContent);
+assert("msg btn after latin→latex", mbtn1.textContent === "Latex", mbtn1.textContent);
+mbtn1.click();
+assert("latex→restore original mixed", content1.textContent.includes("Œβσ") && content1.textContent.includes("hola"), content1.textContent);
+assert("msg btn restored Mixed", mbtn1.textContent === "Mixed", mbtn1.textContent);
+assert("badge cleared on restore", !content1.querySelector('[data-latex-ext="badge"]'), content1.innerHTML);
 
 const li2 = document.getElementById("chat-messages-222");
 const mbtn2 = li2.querySelector('[data-latex-ext="msg"]');
@@ -525,21 +534,80 @@ mbtn2.click();
 assert("embed restore", embedDesc.textContent === "Descripcion del embed", embedDesc.textContent);
 assert("component restore", compBtn.textContent === "Aceptar cosa", compBtn.textContent);
 
+if (msgBtn.textContent !== "Message encoding enabled") {
+  msgBtn.click();
+  await wait(50);
+}
 const content5 = document.getElementById("message-content-111");
-mbtn1.click();
-assert("manual on 111", content5.textContent.includes("σ"), content5.textContent);
-msgBtn.click();
-await wait(50);
 assert(
-  "msg translation off does not revert manual",
-  content5.textContent.includes("σ"),
+  "auto mixed 111 to latin on enable",
+  content5.textContent.includes("lma") && content5.textContent.includes("hola"),
   content5.textContent
 );
+assert(
+  "auto mixed badge",
+  content5.querySelector('[data-latex-ext="badge"]')?.textContent === "(mixed)",
+  content5.querySelector('[data-latex-ext="badge"]')?.textContent
+);
+
+mbtn1.click();
+assert(
+  "manual override of auto restores original",
+  content5.textContent.includes("Œβσ") && content5.textContent.includes("hola"),
+  content5.textContent
+);
+assert(
+  "override clears badge",
+  !content5.querySelector('[data-latex-ext="badge"]'),
+  content5.innerHTML
+);
+await wait(50);
+assert(
+  "manual override not re-autoed",
+  content5.textContent.includes("Œβσ"),
+  content5.textContent
+);
+
 msgBtn.click();
 await wait(50);
 assert(
-  "msg translation on leaves manual alone",
-  content5.textContent.includes("σ"),
+  "msg encoding off stays original",
+  content5.textContent.includes("Œβσ") && content5.textContent.includes("hola"),
+  content5.textContent
+);
+assert(
+  "off clears badge",
+  !content5.querySelector('[data-latex-ext="badge"]'),
+  content5.innerHTML
+);
+
+msgBtn.click();
+await wait(50);
+assert(
+  "msg encoding on re-autos mixed to latin",
+  content5.textContent.includes("lma"),
+  content5.textContent
+);
+assert(
+  "re-auto badge mixed",
+  content5.querySelector('[data-latex-ext="badge"]')?.textContent === "(mixed)",
+  content5.querySelector('[data-latex-ext="badge"]')?.textContent
+);
+
+mbtn1.click();
+assert(
+  "second override after re-auto restores",
+  content5.textContent.includes("Œβσ"),
+  content5.textContent
+);
+
+msgBtn.click();
+await wait(50);
+msgBtn.click();
+await wait(50);
+assert(
+  "settings bounce defaults to auto latin",
+  content5.textContent.includes("lma"),
   content5.textContent
 );
 mbtn1.click();

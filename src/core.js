@@ -110,7 +110,9 @@
       if (LATEX_CHARS.has(ch)) latex++;
       else if (/\p{Script=Latin}/u.test(ch)) latin++;
     }
-    return latex > latin ? "latex" : "latin";
+    if (latex > 0 && latin > 0) return "mixed";
+    if (latex > 0) return "latex";
+    return "latin";
   }
 
   function otherMode(mode) {
@@ -121,7 +123,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.0.7";
+  const VERSION = "1.0.8";
 
   const settings = {
     live: true,
@@ -212,6 +214,9 @@
     .latex-ext-btn[data-mode="latex"] {
       color: var(--text-link, #00a8fc);
     }
+    .latex-ext-btn[data-mode="mixed"] {
+      color: #f0b232;
+    }
     .latex-ext-btn[data-state="off"] {
       color: var(--text-muted, #949ba4);
     }
@@ -261,6 +266,9 @@
     }
     .latex-ext-toggle[data-mode="latex"] {
       color: var(--text-link, #00a8fc);
+    }
+    .latex-ext-toggle[data-mode="mixed"] {
+      color: #f0b232;
     }
     .latex-ext-toggle[data-mode="latex"]:hover {
       color: var(--text-link, #00a8fc);

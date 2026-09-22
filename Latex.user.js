@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.0.7
+// @version      1.0.8
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -127,7 +127,9 @@
       if (LATEX_CHARS.has(ch)) latex++;
       else if (/\p{Script=Latin}/u.test(ch)) latin++;
     }
-    return latex > latin ? "latex" : "latin";
+    if (latex > 0 && latin > 0) return "mixed";
+    if (latex > 0) return "latex";
+    return "latin";
   }
 
   function otherMode(mode) {
@@ -138,7 +140,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.0.7";
+  const VERSION = "1.0.8";
 
   const settings = {
     live: true,
@@ -229,6 +231,9 @@
     .latex-ext-btn[data-mode="latex"] {
       color: var(--text-link, #00a8fc);
     }
+    .latex-ext-btn[data-mode="mixed"] {
+      color: #f0b232;
+    }
     .latex-ext-btn[data-state="off"] {
       color: var(--text-muted, #949ba4);
     }
@@ -278,6 +283,9 @@
     }
     .latex-ext-toggle[data-mode="latex"] {
       color: var(--text-link, #00a8fc);
+    }
+    .latex-ext-toggle[data-mode="mixed"] {
+      color: #f0b232;
     }
     .latex-ext-toggle[data-mode="latex"]:hover {
       color: var(--text-link, #00a8fc);
@@ -1393,7 +1401,20 @@
 
   function setButtonMode(btn, mode) {
     btn.dataset.mode = mode;
-    btn.textContent = mode === "latex" ? "Latex" : "Latin";
+    if (mode === "latex") btn.textContent = "Latex";
+    else if (mode === "mixed") btn.textContent = "Mixed";
+    else btn.textContent = "Latin";
+  }
+
+  function newState() {
+    return {
+      saved: null,
+      applied: null,
+      baseSaved: null,
+      manual: false,
+      origDetect: null,
+      displayMode: null
+    };
   }
 
   function findMsgPanel(li) {
@@ -1415,6 +1436,11 @@
   }
 
   function refreshLabel(li, btn) {
+    const st = states.get(li);
+    if (st && st.saved && st.displayMode) {
+      setButtonMode(btn, st.displayMode);
+      return;
+    }
     setButtonMode(btn, Core.detect(combinedText(li)));
   }
 
@@ -1447,86 +1473,132 @@
     }
   }
 
-  function applyTransform(li, btn, toMode) {
+  function nodesMatch(nodes, arr) {
+    return (
+      arr &&
+      nodes.length === arr.length &&
+      nodes.every((n, i) => n.nodeValue === arr[i])
+    );
+  }
+
+  function applyTransform(li, btn, toMode, origDetect) {
     const roots = collectTranslatableRoots(li);
     const nodes = collectTextNodes(roots);
     const raw = nodes.map((n) => n.nodeValue).join("");
-    const source =
-      toMode === "latin" ? "latex" : toMode === "latex" ? "latin" : Core.detect(raw);
-    const target = toMode || Core.otherMode(source);
+    const source = origDetect || Core.detect(raw);
+    const target = toMode || (source === "latin" ? "latex" : "latin");
     const fn = target === "latex" ? Core.encodeToLatex : Core.decodeToLatin;
-    const state = states.get(li) || { saved: null, applied: null };
+    const state = states.get(li) || newState();
+    if (!state.baseSaved) {
+      state.baseSaved = nodes.map((n) => n.nodeValue);
+    }
     state.saved = nodes.map((n) => n.nodeValue);
     for (const n of nodes) n.nodeValue = fn(n.nodeValue);
     state.applied = nodes.map((n) => n.nodeValue);
+    state.origDetect = source;
+    state.displayMode = target;
     states.set(li, state);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
     return state;
   }
 
-  function restoreTransform(li, btn) {
+  function restoreBase(li, btn) {
+    const state = states.get(li);
     const roots = collectTranslatableRoots(li);
     const nodes = collectTextNodes(roots);
-    const state = states.get(li);
-    if (
-      state &&
-      state.saved &&
-      state.applied &&
-      nodes.length === state.saved.length &&
-      nodes.every((n, i) => n.nodeValue === state.applied[i])
-    ) {
+    const src = state && state.baseSaved;
+    if (src && nodes.length === src.length) {
       nodes.forEach((n, i) => {
-        n.nodeValue = state.saved[i];
+        n.nodeValue = src[i];
       });
     }
     if (state) {
       state.saved = null;
       state.applied = null;
-      state.auto = false;
+      state.baseSaved = null;
+      state.origDetect = null;
+      state.displayMode = null;
       states.set(li, state);
     }
     ensureBadge(li, null);
     if (btn) refreshLabel(li, btn);
   }
 
-  function handleToggle(li, btn) {
+  function isShowingApplied(li) {
     const state = states.get(li);
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
+    if (!state || !state.applied) return false;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    return nodesMatch(nodes, state.applied);
+  }
 
-    if (
-      state &&
-      state.saved &&
-      state.applied &&
-      nodes.length === state.saved.length &&
-      nodes.every((n, i) => n.nodeValue === state.applied[i])
-    ) {
-      restoreTransform(li, btn);
+  function handleToggle(li, btn) {
+    const state = states.get(li) || newState();
+    const wasManual = state.manual;
+    state.manual = true;
+    states.set(li, state);
+
+    if (isShowingApplied(li)) {
+      if (!wasManual) {
+        restoreBase(li, btn);
+        const st = states.get(li);
+        if (st) {
+          st.manual = true;
+          states.set(li, st);
+        }
+        return;
+      }
+      if (state.origDetect === "mixed" && state.displayMode === "latin") {
+        applyTransform(li, btn, "latex", "mixed");
+        return;
+      }
+      restoreBase(li, btn);
       return;
     }
 
-    const applied = applyTransform(li, btn);
-    applied.auto = false;
+    const roots = collectTranslatableRoots(li);
+    const nodes = collectTextNodes(roots);
+    const raw = nodes.map((n) => n.nodeValue).join("");
+    const detected = Core.detect(raw);
+
+    if (detected === "mixed") {
+      applyTransform(li, btn, "latin", "mixed");
+    } else if (detected === "latex") {
+      applyTransform(li, btn, "latin", "latex");
+    } else {
+      applyTransform(li, btn, "latex", "latin");
+    }
   }
 
   function maybeAutoTranslate(li) {
     if (!Core.settings.message) return;
     const state = states.get(li);
-    if (state && state.saved) return;
+    if (state && (state.manual || state.saved)) return;
     const raw = combinedText(li);
     if (!raw.trim()) return;
-    if (Core.detect(raw) !== "latex") return;
+    const d = Core.detect(raw);
+    if (d === "latin") return;
     const btn = li.querySelector('[data-latex-ext="msg"]');
-    const applied = applyTransform(li, btn, "latin");
-    applied.auto = true;
+    applyTransform(li, btn, "latin", d);
   }
 
-  function revertAutoTranslated() {
+  function resetMessageDefaults() {
     document.querySelectorAll(MSG_SEL).forEach((li) => {
       const state = states.get(li);
-      if (!state || !state.saved || !state.applied || !state.auto) return;
-      restoreTransform(li, li.querySelector('[data-latex-ext="msg"]'));
+      if (state && (state.saved || state.applied || state.baseSaved)) {
+        restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
+      }
+      const st = states.get(li) || newState();
+      st.manual = false;
+      st.baseSaved = null;
+      st.saved = null;
+      st.applied = null;
+      st.origDetect = null;
+      st.displayMode = null;
+      states.set(li, st);
+      ensureBadge(li, null);
+      const btn = li.querySelector('[data-latex-ext="msg"]');
+      if (btn) refreshLabel(li, btn);
     });
   }
 
@@ -1564,11 +1636,8 @@
     btn.type = "button";
     btn.className = "latex-ext-btn";
     btn.dataset.latexExt = "msg";
-    btn.title = "Toggle this message between Latin and Latex";
-    btn.setAttribute(
-      "aria-label",
-      "Toggle this message between Latin and Latex"
-    );
+    btn.title = "Cycle message encoding: Mixed, Latin, Latex";
+    btn.setAttribute("aria-label", "Cycle message encoding: Mixed, Latin, Latex");
     setButtonMode(btn, Core.detect(combinedText(li)));
     btn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -1584,7 +1653,7 @@
 
     container.prepend(panel);
     container.insertBefore(sep, panel.nextSibling);
-    states.set(li, states.get(li) || { saved: null, applied: null });
+    states.set(li, states.get(li) || newState());
   }
 
   function scan() {
@@ -1599,7 +1668,7 @@
   }
 
   function onSettingsChanged() {
-    if (!Core.settings.message) revertAutoTranslated();
+    resetMessageDefaults();
     scheduleScan();
   }
 
