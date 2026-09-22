@@ -1,25 +1,22 @@
-# Discord Latex Encoder
+# Latex
 
-Codificador Latin/Latex (inspirado en [Changed](https://store.steampowered.com/app/349330/Changed/)) para el cliente web de Discord.
+Latin/Latex (Changed-style) encoder for Discord web.
 
-## Instalar (Tampermonkey)
+## Install (Tampermonkey)
 
-Abre este enlace con Tampermonkey instalado y acepta la instalación:
+Open with Tampermonkey installed and accept:
 
-**https://raw.githubusercontent.com/sshtmp/discord-latex-encoder/main/DiscordLatexEncoder.user.js**
+**https://raw.githubusercontent.com/sshtmp/latex/main/Latex.user.js**
 
-## Características
+## Features
 
-- Panel **LATEX v1** en el composer:
-  - Encoding: Disabled → Latin → Latex
-  - Live translation on/off (off = traduce solo al enviar)
-  - Message translation on/off (auto-traduce mensajes latex entrantes)
-- Panel **LATEX v1** en la toolbar de hover del mensaje
-- Badge `(latex)` / `(latin)` en mensajes traducidos, antes de `(edited)`
+- **LATEX v1** panel in the composer (encoding cycle, live translation, message translation)
+- **LATEX v1** panel on message hover toolbar
+- `(latex)` / `(latin)` badge on translated messages, before `(edited)`
 
-## Extensión (opcional)
+## Extension (optional)
 
-Manifest V3 clásico en `manifest.json` (Chrome/Firefox about:debugging → Load temporary add-on).
+MV3 manifest in `manifest.json`.
 
 ## Tests
 
@@ -35,4 +32,4 @@ npm test
 ./scripts/build-userjs.sh
 ```
 
-Genera `DiscordLatexEncoder.user.js` en la raíz (lo que sirve el `@downloadURL` de GitHub).
+Outputs `Latex.user.js` at the repo root.

@@ -1,5 +1,5 @@
 {
-  "name": "discord-latex-encoder-tests",
+  "name": "latex-tests",
   "private": true,
   "type": "module",
   "scripts": {

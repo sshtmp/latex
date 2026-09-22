@@ -1,35 +1,21 @@
 // ==UserScript==
-// @name         Discord Latex Encoder
-// @namespace    https://github.com/sshtmp/discord-latex-encoder
+// @name         Latex
+// @namespace    https://github.com/sshtmp/latex
 // @version      1.0.0
-// @description  Codificador Latin/Latex (estilo Changed) para Discord web: panel LATEX v1, live translation y badges en mensajes
+// @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
 // @match        https://ptb.discord.com/*
 // @match        https://canary.discord.com/*
 // @run-at       document-idle
 // @grant        none
-// @downloadURL  https://raw.githubusercontent.com/sshtmp/discord-latex-encoder/main/DiscordLatexEncoder.user.js
-// @updateURL    https://raw.githubusercontent.com/sshtmp/discord-latex-encoder/main/DiscordLatexEncoder.user.js
+// @downloadURL  https://raw.githubusercontent.com/sshtmp/latex/main/Latex.user.js
+// @updateURL    https://raw.githubusercontent.com/sshtmp/latex/main/Latex.user.js
 // ==/UserScript==
 
 (function () {
 "use strict";
 
-/* ===== content/core.js ===== */
-/**
- * Núcleo Latin/Latex (Changed).
- *
- * Mapa reverto de loscaracteres.txt (UTF-8 leído como CP1252 → bytes → UTF-8).
- * Verificado contra: "si estas leyendo esto correctamente, lo has traducido te puta madre"
- * → Φ∩ εΦ╪σΦ Œε¥εþ₳⌐ εΦ╪⌐ Ǝ⌐ΩΩεƎ╪σβεþ╪ε, Œ⌐ µσΦ ╪Ωσ₳↨Ǝ∩₳⌐ ╪ε Æ↨╪σ βσ₳Ωε
- *
- * Reconstrucciones donde el txt estaba truncado/degradado:
- *   O → ⌐ U+2310, J → ⌠ U+2320, 1 → ● U+25CF, 4 → ■ U+25A0
- *
- * encode: match exacto del mapa primero (ç→ǝ, ñ→Þ); si no, NFD y letra base
- * (é→e→ε).
- */
 (function () {
   "use strict";
 
@@ -360,22 +346,6 @@
   };
 })();
 
-/* ===== content/composer.js ===== */
-/**
- * Composer: Disabled / Latin / Latex.
- *
- * Intercepción en window + capture (fase de captura global): se ejecuta ANTES
- * que los listeners de Slate en el propio editor (Slate se registra primero
- * en el target, así que un listener en el editor nunca gana la carrera).
- *
- * - Disabled: no interceptamos nada — Slate 100% nativo.
- * - Latin/Latex: cancelamos el beforeinput crudo y re-insertamos el trozo
- *   traducido vía execCommand bajo applying=true → Slate procesa nuestro
- *   beforeinput resultante y el modelo queda limpio.
- * - Permutar: select-all + paste-sim / insertText bajo applying (vías que
- *   Slate entiende). Nunca DOM directo (evita nodos fantasma).
- * - Campo vacío al permutar: solo etiqueta, cero DOM.
- */
 (function () {
   "use strict";
 
@@ -483,7 +453,7 @@
       ) {
         return true;
       }
-    } catch (_) { /* fallback below */ }
+    } catch (_) {}
 
     const sel = window.getSelection();
     if (!sel) return false;
@@ -998,8 +968,8 @@ function onEditorInput(editor, state) {
     encBtn.type = "button";
     encBtn.className = "latex-ext-btn";
     encBtn.dataset.latexExt = "composer";
-    encBtn.title = "Codificación del composer";
-    encBtn.setAttribute("aria-label", "Codificación del composer");
+    encBtn.title = "Cycle encoding mode";
+    encBtn.setAttribute("aria-label", "Cycle encoding mode");
     encBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1011,8 +981,11 @@ function onEditorInput(editor, state) {
     liveBtn.type = "button";
     liveBtn.className = "latex-ext-btn";
     liveBtn.dataset.latexExt = "live";
-    liveBtn.title = "Live translation";
-    liveBtn.setAttribute("aria-label", "Live translation");
+    liveBtn.title = "Auto-translate while typing; off translates only on send";
+    liveBtn.setAttribute(
+      "aria-label",
+      "Auto-translate while typing; off translates only on send"
+    );
     liveBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1024,8 +997,8 @@ function onEditorInput(editor, state) {
     msgBtn.type = "button";
     msgBtn.className = "latex-ext-btn";
     msgBtn.dataset.latexExt = "msgauto";
-    msgBtn.title = "Message translation";
-    msgBtn.setAttribute("aria-label", "Message translation");
+    msgBtn.title = "Auto-translate incoming Latex messages";
+    msgBtn.setAttribute("aria-label", "Auto-translate incoming Latex messages");
     msgBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1082,16 +1055,6 @@ function onEditorInput(editor, state) {
   });
 })();
 
-/* ===== content/messages.js ===== */
-/**
- * Panel LATEX v1 + botón Latin/Latex en la toolbar de hover del mensaje.
- * Dentro de buttonsInner, primero: [LATEX v1 (Latex)] | [reacciones] ...
- *
- * Roots: message-content + embedsFull + components (NO la toolbar de acciones).
- * Cache = text nodes en orden; restaurar reasigna in-situ (preserva listeners
- * de React en components). Autodetección sobre texto combinado de todos roots.
- * Badge (latex)/(latin) al final del markup, antes de (edited) de Discord.
- */
 (function () {
   "use strict";
 
@@ -1182,10 +1145,10 @@ function onEditorInput(editor, state) {
     btn.type = "button";
     btn.className = "latex-ext-btn";
     btn.dataset.latexExt = "msg";
-    btn.title = "Alternar codificación Latin/Latex de este mensaje";
+    btn.title = "Toggle this message between Latin and Latex";
     btn.setAttribute(
       "aria-label",
-      "Alternar codificación Latin/Latex de este mensaje"
+      "Toggle this message between Latin and Latex"
     );
     setButtonMode(btn, Core.detect(combinedText(li)));
     btn.addEventListener("click", (e) => {
@@ -1362,10 +1325,10 @@ function onEditorInput(editor, state) {
     btn.type = "button";
     btn.className = "latex-ext-btn";
     btn.dataset.latexExt = "msg";
-    btn.title = "Alternar codificación Latin/Latex de este mensaje";
+    btn.title = "Toggle this message between Latin and Latex";
     btn.setAttribute(
       "aria-label",
-      "Alternar codificación Latin/Latex de este mensaje"
+      "Toggle this message between Latin and Latex"
     );
     setButtonMode(btn, Core.detect(combinedText(li)));
     btn.addEventListener("click", (e) => {

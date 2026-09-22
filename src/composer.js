@@ -1,18 +1,3 @@
-/**
- * Composer: Disabled / Latin / Latex.
- *
- * Intercepción en window + capture (fase de captura global): se ejecuta ANTES
- * que los listeners de Slate en el propio editor (Slate se registra primero
- * en el target, así que un listener en el editor nunca gana la carrera).
- *
- * - Disabled: no interceptamos nada — Slate 100% nativo.
- * - Latin/Latex: cancelamos el beforeinput crudo y re-insertamos el trozo
- *   traducido vía execCommand bajo applying=true → Slate procesa nuestro
- *   beforeinput resultante y el modelo queda limpio.
- * - Permutar: select-all + paste-sim / insertText bajo applying (vías que
- *   Slate entiende). Nunca DOM directo (evita nodos fantasma).
- * - Campo vacío al permutar: solo etiqueta, cero DOM.
- */
 (function () {
   "use strict";
 
@@ -120,7 +105,7 @@
       ) {
         return true;
       }
-    } catch (_) { /* fallback below */ }
+    } catch (_) {}
 
     const sel = window.getSelection();
     if (!sel) return false;
@@ -635,8 +620,8 @@ function onEditorInput(editor, state) {
     encBtn.type = "button";
     encBtn.className = "latex-ext-btn";
     encBtn.dataset.latexExt = "composer";
-    encBtn.title = "Codificación del composer";
-    encBtn.setAttribute("aria-label", "Codificación del composer");
+    encBtn.title = "Cycle encoding mode";
+    encBtn.setAttribute("aria-label", "Cycle encoding mode");
     encBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -648,8 +633,11 @@ function onEditorInput(editor, state) {
     liveBtn.type = "button";
     liveBtn.className = "latex-ext-btn";
     liveBtn.dataset.latexExt = "live";
-    liveBtn.title = "Live translation";
-    liveBtn.setAttribute("aria-label", "Live translation");
+    liveBtn.title = "Auto-translate while typing; off translates only on send";
+    liveBtn.setAttribute(
+      "aria-label",
+      "Auto-translate while typing; off translates only on send"
+    );
     liveBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -661,8 +649,8 @@ function onEditorInput(editor, state) {
     msgBtn.type = "button";
     msgBtn.className = "latex-ext-btn";
     msgBtn.dataset.latexExt = "msgauto";
-    msgBtn.title = "Message translation";
-    msgBtn.setAttribute("aria-label", "Message translation");
+    msgBtn.title = "Auto-translate incoming Latex messages";
+    msgBtn.setAttribute("aria-label", "Auto-translate incoming Latex messages");
     msgBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();

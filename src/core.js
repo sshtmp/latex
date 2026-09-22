@@ -1,16 +1,3 @@
-/**
- * Núcleo Latin/Latex (Changed).
- *
- * Mapa reverto de loscaracteres.txt (UTF-8 leído como CP1252 → bytes → UTF-8).
- * Verificado contra: "si estas leyendo esto correctamente, lo has traducido te puta madre"
- * → Φ∩ εΦ╪σΦ Œε¥εþ₳⌐ εΦ╪⌐ Ǝ⌐ΩΩεƎ╪σβεþ╪ε, Œ⌐ µσΦ ╪Ωσ₳↨Ǝ∩₳⌐ ╪ε Æ↨╪σ βσ₳Ωε
- *
- * Reconstrucciones donde el txt estaba truncado/degradado:
- *   O → ⌐ U+2310, J → ⌠ U+2320, 1 → ● U+25CF, 4 → ■ U+25A0
- *
- * encode: match exacto del mapa primero (ç→ǝ, ñ→Þ); si no, NFD y letra base
- * (é→e→ε).
- */
 (function () {
   "use strict";
 

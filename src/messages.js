@@ -1,12 +1,3 @@
-/**
- * Panel LATEX v1 + botón Latin/Latex en la toolbar de hover del mensaje.
- * Dentro de buttonsInner, primero: [LATEX v1 (Latex)] | [reacciones] ...
- *
- * Roots: message-content + embedsFull + components (NO la toolbar de acciones).
- * Cache = text nodes en orden; restaurar reasigna in-situ (preserva listeners
- * de React en components). Autodetección sobre texto combinado de todos roots.
- * Badge (latex)/(latin) al final del markup, antes de (edited) de Discord.
- */
 (function () {
   "use strict";
 
@@ -97,10 +88,10 @@
     btn.type = "button";
     btn.className = "latex-ext-btn";
     btn.dataset.latexExt = "msg";
-    btn.title = "Alternar codificación Latin/Latex de este mensaje";
+    btn.title = "Toggle this message between Latin and Latex";
     btn.setAttribute(
       "aria-label",
-      "Alternar codificación Latin/Latex de este mensaje"
+      "Toggle this message between Latin and Latex"
     );
     setButtonMode(btn, Core.detect(combinedText(li)));
     btn.addEventListener("click", (e) => {
@@ -277,10 +268,10 @@
     btn.type = "button";
     btn.className = "latex-ext-btn";
     btn.dataset.latexExt = "msg";
-    btn.title = "Alternar codificación Latin/Latex de este mensaje";
+    btn.title = "Toggle this message between Latin and Latex";
     btn.setAttribute(
       "aria-label",
-      "Alternar codificación Latin/Latex de este mensaje"
+      "Toggle this message between Latin and Latex"
     );
     setButtonMode(btn, Core.detect(combinedText(li)));
     btn.addEventListener("click", (e) => {

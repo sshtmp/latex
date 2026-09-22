@@ -110,7 +110,7 @@ document.execCommand = (cmd, _ui, value) => {
 };
 
 const load = (f) => {
-  const code = readFileSync(path.join(dir, "..", "content", f), "utf8");
+  const code = readFileSync(path.join(dir, "..", "src", f), "utf8");
   new Function(code).call(window);
 };
 
@@ -164,14 +164,12 @@ const msgBtn = cbtn.parentElement.querySelector('[data-latex-ext="msgauto"]');
 assert("live default on", liveBtn && liveBtn.textContent === "Live translation enabled", liveBtn?.textContent);
 assert("msg default off", msgBtn && msgBtn.textContent === "Message translation disabled", msgBtn?.textContent);
 
-// window capture intercepts beforeinput
 const probe = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 probe.inputType = "insertText";
 probe.data = "x";
 ed.dispatchEvent(probe);
 assert("window capture active (disabled: not prevented)", probe.defaultPrevented === false, probe.defaultPrevented);
 
-// --- cycle keeps text ---
 cbtn.click();
 assert("→ latin", readEd() === "Hola hola" && readEd().length > 0, readEd());
 assert("encoding label latin", cbtn.textContent === "Encoding to Latin", cbtn.textContent);
@@ -184,7 +182,6 @@ assert("encoding label disabled again", cbtn.textContent === "Encoding disabled"
 cbtn.click();
 assert("→ latin again", readEd() === "Hola hola", readEd());
 
-// --- live typing: beforeinput intercepted at window, translated insert ---
 const t1 = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 t1.inputType = "insertText";
 t1.data = " ";
@@ -211,7 +208,6 @@ assert("latex live m→β", readEd() === "µ⌐Œσ µ⌐Œσ βε⌐w βε⌐w"
 cbtn.click();
 assert("disabled full original", readEd() === "Hola µ⌐Œσ βε⌐w meow", readEd());
 
-// --- disabled native: clear + retype (no ghosts) ---
 ed.textContent = "";
 fireInput(ed);
 assert("disabled clear no ghost", computeInnerText(ed) === "" && ed.textContent === "", {
@@ -224,7 +220,6 @@ ed.textContent = "nuevo texto";
 fireInput(ed);
 assert("disabled retype", readEd() === "nuevo texto", readEd());
 
-// cycle latin (already-latin stays), latex changes, back
 cbtn.click();
 assert("latin of nuevo", readEd() === "nuevo texto", readEd());
 cbtn.click();
@@ -232,10 +227,9 @@ assert("latex of nuevo", readEd() !== "nuevo texto" && readEd().length > 0, read
 cbtn.click();
 assert("disabled back", readEd() === "nuevo texto", readEd());
 
-// delete: only cache updates — display stays as user left it
 ed.textContent = "Hola µ⌐Œσ";
 fireInput(ed);
-cbtn.click(); // latin
+cbtn.click(); 
 assert("latin has text", readEd() === "Hola hola", readEd());
 
 const delEv = new window.Event("beforeinput", { bubbles: true, cancelable: true });
@@ -246,23 +240,23 @@ fireInput(ed);
 await wait(5);
 
 assert("delete-all display empty, not retranslated", readEd() === "", readEd());
-cbtn.click(); // latex
+cbtn.click(); 
 assert("after delete latex stays empty", readEd() === "", readEd());
-cbtn.click(); // disabled
+cbtn.click(); 
 assert("after delete disabled stays empty", readEd() === "", readEd());
 
 ed.textContent = "meow\n:sob:";
 fireInput(ed);
-cbtn.click(); // latin
+cbtn.click(); 
 assert("nl+sob latin", readEd() === "meow\n:sob:", JSON.stringify(readEd()));
-cbtn.click(); // latex
+cbtn.click(); 
 assert(
   "nl+sob latex no extra lines",
   readEd() === "βε⌐w\n:sob:",
   JSON.stringify(readEd())
 );
 assert("no BOM in html", !ed.innerHTML.includes("\uFEFF"), ed.innerHTML);
-cbtn.click(); // disabled
+cbtn.click(); 
 assert("nl+sob disabled restore", readEd() === "meow\n:sob:", JSON.stringify(readEd()));
 assert("no ghost after sob cycle", ed.textContent === "meow\n:sob:", {
   text: ed.textContent,
@@ -270,12 +264,11 @@ assert("no ghost after sob cycle", ed.textContent === "meow\n:sob:", {
   childCount: ed.childNodes.length
 });
 
-// send clears cache: type in latin, simulate Enter send (editor empties)
 ed.textContent = "Hola µ⌐Œσ";
 fireInput(ed);
-cbtn.click(); // latin
+cbtn.click(); 
 assert("pre-send latin", readEd() === "Hola hola", readEd());
-cbtn.click(); // latex
+cbtn.click(); 
 assert("pre-send latex", readEd() === "µ⌐Œσ µ⌐Œσ", readEd());
 
 ed.dispatchEvent(
@@ -289,18 +282,17 @@ ed.textContent = "";
 fireInput(ed);
 await wait(80);
 
-cbtn.click(); // disabled
+cbtn.click(); 
 assert("after send disabled empty", readEd() === "", readEd());
-cbtn.click(); // latin
+cbtn.click(); 
 assert("after send latin still empty", readEd() === "", readEd());
-cbtn.click(); // latex
+cbtn.click(); 
 assert("after send latex still empty", readEd() === "", readEd());
-cbtn.click(); // disabled again
+cbtn.click(); 
 
-// live translation off: revert to original, no live typing, translate on send
 ed.textContent = "Hola µ⌐Œσ";
 fireInput(ed);
-cbtn.click(); // latin
+cbtn.click(); 
 assert("pre-live-off latin", readEd() === "Hola hola", readEd());
 liveBtn.click();
 assert("live label disabled", liveBtn.textContent === "Live translation disabled", liveBtn.textContent);
@@ -328,18 +320,17 @@ assert("live-off prepareSend encodes", readEd() === "Hola holaz", readEd());
 
 liveBtn.click();
 assert("live re-enabled label", liveBtn.textContent === "Live translation enabled", liveBtn.textContent);
-cbtn.click(); // latex
+cbtn.click(); 
 assert("latin→latex after live-off", readEd() === "µ⌐Œσ µ⌐Œσ√", readEd());
-cbtn.click(); // disabled
+cbtn.click(); 
 assert("back to disabled", readEd() === "Hola µ⌐Œσz", readEd());
 
-// live-off prepareSend must encode what's in the editor, not a stale cache
 ed.textContent = "nuevo draft";
 fireInput(ed);
-cbtn.click(); // latin
-cbtn.click(); // latex
+cbtn.click(); 
+cbtn.click(); 
 assert("stale-prep latex mode", readEd() !== "nuevo draft", readEd());
-liveBtn.click(); // live off → revert shows original
+liveBtn.click(); 
 assert("stale-prep live off original", readEd() === "nuevo draft", readEd());
 ed.textContent = "otro texto";
 assert("stale-prep dom only (no input → original still old)", readEd() === "otro texto", readEd());
@@ -355,17 +346,16 @@ assert(
   readEd() === C.encodeToLatex("otro texto"),
   { got: readEd(), want: C.encodeToLatex("otro texto") }
 );
-liveBtn.click(); // live on again
-cbtn.click(); // disabled
+liveBtn.click(); 
+cbtn.click(); 
 ed.textContent = "";
 fireInput(ed);
 
-// stale live-off cache: DOM edited without input event must win on send
 ed.textContent = "stale hello";
 fireInput(ed);
-cbtn.click(); // latin
+cbtn.click(); 
 assert("stale prep latin", readEd() === "stale hello", readEd());
-liveBtn.click(); // live off
+liveBtn.click(); 
 assert("stale prep live off", readEd() === "stale hello", readEd());
 ed.textContent = "fresh typed";
 const staleEnter = new window.KeyboardEvent("keydown", {
@@ -379,11 +369,10 @@ assert(
   readEd() === "fresh typed" || readEd() === C.encodeToLatex("fresh typed") || readEd() === C.decodeToLatin("fresh typed"),
   readEd()
 );
-liveBtn.click(); // live back on
-cbtn.click(); // disabled
-cbtn.click(); // latin for following tests
+liveBtn.click(); 
+cbtn.click(); 
+cbtn.click(); 
 
-// message translation auto
 ed.textContent = "";
 fireInput(ed);
 msgBtn.click();
@@ -402,11 +391,10 @@ await wait(50);
 assert("msg restore after disable", content3.textContent.includes("Φ∩"), content3.textContent);
 assert("badge removed", !content3.querySelector('[data-latex-ext="badge"]'), content3.innerHTML);
 
-// badge before (edited)
 const li4 = document.getElementById("chat-messages-444");
 const content4 = document.getElementById("message-content-444");
 const mbtn4 = li4.querySelector('[data-latex-ext="msg"]');
-mbtn4.click(); // latex → latin + (latex)
+mbtn4.click(); 
 const badge4 = content4.querySelector('[data-latex-ext="badge"]');
 const edited4 = content4.querySelector(".edited");
 assert("manual badge latex", badge4 && badge4.textContent === "(latex)", badge4?.textContent);
@@ -417,7 +405,7 @@ assert(
 );
 assert("edited text intact", content4.textContent.includes("(edited)"), content4.textContent);
 assert("edited not translated", !content4.textContent.includes("⊘") && content4.textContent.includes("(edited)"), content4.textContent);
-mbtn4.click(); // restore
+mbtn4.click(); 
 assert("manual restore removes badge", !content4.querySelector('[data-latex-ext="badge"]'), content4.innerHTML);
 assert("manual restore keeps edited", content4.textContent.includes("(edited)"), content4.textContent);
 
@@ -450,14 +438,14 @@ await wait(50);
 const slateBtn = wrap.querySelector('[data-latex-ext="composer"]');
 assert("slate-structure button", !!slateBtn, null);
 if (slateBtn) {
-  slateBtn.click(); // latin — mismo texto lógico → no reescribe DOM (ok)
+  slateBtn.click(); 
   const latinText = slateHost.textContent || "";
   assert(
     "slate latin: emoji + text present",
     latinText.includes(":sob:") && latinText.includes("yooo"),
     JSON.stringify(latinText)
   );
-  slateBtn.click(); // latex → reescribe
+  slateBtn.click(); 
   const latexText = slateHost.textContent || "";
   assert("slate latex: no BOM after rewrite", !latexText.includes("\uFEFF"), JSON.stringify(latexText));
   assert(
@@ -465,7 +453,7 @@ if (slateBtn) {
     latexText.includes(":sob:"),
     JSON.stringify(latexText)
   );
-  slateBtn.click(); // disabled → restaura original limpio
+  slateBtn.click(); 
   const backText = slateHost.textContent || "";
   assert("slate disabled: no BOM after full cycle", !backText.includes("\uFEFF"), JSON.stringify(backText));
   assert(
@@ -475,7 +463,6 @@ if (slateBtn) {
   );
 }
 
-// empty composer permute
 const edE = document.getElementById("editor-empty");
 const cbtnE = [...document.querySelectorAll('[data-latex-ext="composer"]')].find(
   (b) => b.closest(".channelTextArea__empty")
@@ -493,7 +480,6 @@ if (cbtnE) {
   );
 }
 
-// messages / embeds
 const li1 = document.getElementById("chat-messages-111");
 const mbtn1 = li1.querySelector('[data-latex-ext="msg"]');
 const mpanel1 = li1.querySelector('[data-latex-ext="msg-panel"]');

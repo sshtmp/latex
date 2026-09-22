@@ -1,12 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Discord Latex Encoder",
+  "name": "Latex",
   "version": "1.0.0",
-  "description": "Codificador Latin/Latex (inspirado en Changed) para el cliente web de Discord",
+  "description": "Latin/Latex (Changed-style) encoder for Discord web",
   "content_scripts": [
     {
       "matches": ["https://discord.com/*"],
-      "js": ["content/core.js", "content/composer.js", "content/messages.js"],
+      "js": ["src/core.js", "src/composer.js", "src/messages.js"],
       "run_at": "document_idle"
     }
   ]

@@ -3,23 +3,23 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION=$(node -p "require('./manifest.json').version")
-OUT="DiscordLatexEncoder.user.js"
+OUT="Latex.user.js"
 
 {
   cat <<EOF
 // ==UserScript==
-// @name         Discord Latex Encoder
-// @namespace    https://github.com/sshtmp/discord-latex-encoder
+// @name         Latex
+// @namespace    https://github.com/sshtmp/latex
 // @version      ${VERSION}
-// @description  Codificador Latin/Latex (estilo Changed) para Discord web: panel LATEX v1, live translation y badges en mensajes
+// @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
 // @match        https://ptb.discord.com/*
 // @match        https://canary.discord.com/*
 // @run-at       document-idle
 // @grant        none
-// @downloadURL  https://raw.githubusercontent.com/sshtmp/discord-latex-encoder/main/${OUT}
-// @updateURL    https://raw.githubusercontent.com/sshtmp/discord-latex-encoder/main/${OUT}
+// @downloadURL  https://raw.githubusercontent.com/sshtmp/latex/main/${OUT}
+// @updateURL    https://raw.githubusercontent.com/sshtmp/latex/main/${OUT}
 // ==/UserScript==
 
 EOF
@@ -27,8 +27,7 @@ EOF
   echo '"use strict";'
   echo
   for f in core composer messages; do
-    echo "/* ===== content/${f}.js ===== */"
-    cat "content/${f}.js"
+    cat "src/${f}.js"
     echo
   done
   echo "})();"
