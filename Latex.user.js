@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.0.0
+// @version      1.0.1
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
 // @run-at       document-idle
 // @grant        none
+// @supportURL   https://guns.lol/tm
 // @downloadURL  https://raw.githubusercontent.com/sshtmp/latex/main/Latex.user.js
 // @updateURL    https://raw.githubusercontent.com/sshtmp/latex/main/Latex.user.js
 // ==/UserScript==

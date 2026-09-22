@@ -16,6 +16,7 @@ OUT="Latex.user.js"
 // @match        https://discord.com/*
 // @run-at       document-idle
 // @grant        none
+// @supportURL   https://guns.lol/tm
 // @downloadURL  https://raw.githubusercontent.com/sshtmp/latex/main/${OUT}
 // @updateURL    https://raw.githubusercontent.com/sshtmp/latex/main/${OUT}
 // ==/UserScript==
