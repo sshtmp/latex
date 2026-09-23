@@ -58,7 +58,7 @@
 
   const COMBINING_RE = /\p{M}+/gu;
   const PROTECT_RE =
-    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(\[[^\]\n]*\]\([^)\s]+\))|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
+    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
 
   function stripDiacritics(ch) {
     return ch.normalize("NFD").replace(COMBINING_RE, "");
@@ -132,7 +132,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.2.0";
+  const VERSION = "1.2.1";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {

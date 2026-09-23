@@ -221,7 +221,16 @@ assert(
   { w: C.detect("w Φ∩"), hola: C.detect("hola Φ∩") }
 );
 
-assert("version 1.2.0", C.VERSION === "1.2.0", C.VERSION);
+assert("version 1.2.1", C.VERSION === "1.2.1", C.VERSION);
+
+assert(
+  "markdown link text encoded url kept",
+  (() => {
+    const r = C.encodeToLatex("[hi](https://example.com/a)");
+    return r.includes("(https://example.com/a)") && r.includes("[µ∩]");
+  })(),
+  C.encodeToLatex("[hi](https://example.com/a)")
+);
 
 assert(
   "settings default live on message off",
@@ -991,8 +1000,6 @@ if (replyBtn) {
   );
 }
 
-msgBtn.click();
-await wait(20);
 const savedRaw = (() => {
   try {
     return window.localStorage.getItem("latex-ext-settings");
@@ -1014,6 +1021,67 @@ assert(
   reloaded && reloaded.message === C.settings.message,
   { saved: reloaded, runtime: C.settings }
 );
+
+if (msgBtn.textContent !== "Message encoding enabled") {
+  msgBtn.click();
+  await wait(50);
+}
+const li333b = document.getElementById("chat-messages-333");
+const content333b = document.getElementById("message-content-333");
+const mbtn333b = li333b.querySelector('[data-latex-ext="msg"]');
+if (!content333b.querySelector('[data-latex-ext="badge"]')) {
+  await wait(30);
+}
+const autoLatex = content333b.textContent.includes("si estas");
+assert("live-reset setup auto on", autoLatex || !!content333b.querySelector('[data-latex-ext="badge"]'), content333b.textContent);
+mbtn333b.click();
+await wait(10);
+assert(
+  "live-reset manual override to original",
+  content333b.textContent.includes("Φ∩") &&
+    !content333b.querySelector('[data-latex-ext="badge"]'),
+  content333b.textContent
+);
+liveBtn.click();
+await wait(60);
+assert(
+  "live toggle does not clear message override",
+  content333b.textContent.includes("Φ∩") &&
+    !content333b.querySelector('[data-latex-ext="badge"]'),
+  content333b.textContent
+);
+liveBtn.click();
+await wait(20);
+mbtn333b.click();
+msgBtn.click();
+await wait(50);
+
+const liEdit = document.getElementById("chat-messages-111");
+const contentEdit = document.getElementById("message-content-111");
+const mbtnEdit = liEdit.querySelector('[data-latex-ext="msg"]');
+mbtnEdit.click();
+await wait(10);
+assert(
+  "edit-resync setup transformed",
+  !!contentEdit.querySelector('[data-latex-ext="badge"]'),
+  contentEdit.innerHTML
+);
+contentEdit.innerHTML = '<div class="markup">edited by discord now</div>';
+await wait(80);
+assert(
+  "edit without badge child rescans",
+  !contentEdit.querySelector('[data-latex-ext="badge"]'),
+  contentEdit.innerHTML
+);
+mbtnEdit.click();
+await wait(10);
+assert(
+  "re-toggle after edit transforms new content",
+  !!contentEdit.querySelector('[data-latex-ext="badge"]') &&
+    contentEdit.textContent.includes("ε₳∩╪ε₳"),
+  contentEdit.innerHTML
+);
+mbtnEdit.click();
 
 while (cbtn.dataset.mode !== "disabled") cbtn.click();
 ed.textContent = "undo test";

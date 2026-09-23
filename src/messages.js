@@ -12,6 +12,7 @@
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
   const states = new Map();
+  let lastMessageFlag = !!Core.settings.message;
 
   function stateFor(li) {
     return states.get(li.id);
@@ -402,7 +403,11 @@
   }
 
   function onSettingsChanged() {
-    resetMessageDefaults();
+    const messageFlag = !!Core.settings.message;
+    if (messageFlag !== lastMessageFlag) {
+      lastMessageFlag = messageFlag;
+      resetMessageDefaults();
+    }
     scheduleScan();
   }
 
@@ -425,12 +430,18 @@
   window.addEventListener("latex-ext-settings-changed", onSettingsChanged);
 
   function mutationRelevant(m) {
+    const t = m.target;
+    if (t && t.nodeType === 1 && t.closest && t.closest(MSG_SEL)) return true;
     const check = (n) => {
       if (!n || n.nodeType !== 1) return false;
       if (n.matches && (n.matches(MSG_SEL) || n.matches("[data-latex-ext]")))
         return true;
-      if (n.querySelector && (n.querySelector(MSG_SEL) || n.querySelector("[data-latex-ext]")))
+      if (
+        n.querySelector &&
+        (n.querySelector(MSG_SEL) || n.querySelector("[data-latex-ext]"))
+      )
         return true;
+      if (n.closest && n.closest(MSG_SEL)) return true;
       return false;
     };
     for (const n of m.addedNodes) if (check(n)) return true;

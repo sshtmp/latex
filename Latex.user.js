@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.2.0
+// @version      1.2.1
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -75,7 +75,7 @@
 
   const COMBINING_RE = /\p{M}+/gu;
   const PROTECT_RE =
-    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(\[[^\]\n]*\]\([^)\s]+\))|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
+    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
 
   function stripDiacritics(ch) {
     return ch.normalize("NFD").replace(COMBINING_RE, "");
@@ -149,7 +149,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.2.0";
+  const VERSION = "1.2.1";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
@@ -750,14 +750,6 @@
     return false;
   }
 
-  function insertAtCursor(editor, text) {
-    const clean = sanitizeForEditor(text);
-    if (clean === "") return;
-    withApplying(editor, () => {
-      exec("insertText", clean);
-    });
-  }
-
   function selectionOffsets(editor) {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) return null;
@@ -1091,6 +1083,7 @@
 
       const rawFromPaste = state.pasteRaw;
       state.pasteRaw = null;
+      clearTimeout(state.pasteRawTimer);
 
       const raw = rawFromPaste || pasted;
       if (!raw) return;
@@ -1321,7 +1314,7 @@
 
     let panel = host.querySelector('[data-latex-ext="panel"]');
     if (panel && panel._latexEditor === editor) {
-      if (!host.contains(panel)) host.appendChild(panel);
+      if (!host.contains(panel)) host.prepend(panel);
       refreshPanelLabels(panel);
       return;
     }
@@ -1470,6 +1463,7 @@
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
   const states = new Map();
+  let lastMessageFlag = !!Core.settings.message;
 
   function stateFor(li) {
     return states.get(li.id);
@@ -1860,7 +1854,11 @@
   }
 
   function onSettingsChanged() {
-    resetMessageDefaults();
+    const messageFlag = !!Core.settings.message;
+    if (messageFlag !== lastMessageFlag) {
+      lastMessageFlag = messageFlag;
+      resetMessageDefaults();
+    }
     scheduleScan();
   }
 
@@ -1883,12 +1881,18 @@
   window.addEventListener("latex-ext-settings-changed", onSettingsChanged);
 
   function mutationRelevant(m) {
+    const t = m.target;
+    if (t && t.nodeType === 1 && t.closest && t.closest(MSG_SEL)) return true;
     const check = (n) => {
       if (!n || n.nodeType !== 1) return false;
       if (n.matches && (n.matches(MSG_SEL) || n.matches("[data-latex-ext]")))
         return true;
-      if (n.querySelector && (n.querySelector(MSG_SEL) || n.querySelector("[data-latex-ext]")))
+      if (
+        n.querySelector &&
+        (n.querySelector(MSG_SEL) || n.querySelector("[data-latex-ext]"))
+      )
         return true;
+      if (n.closest && n.closest(MSG_SEL)) return true;
       return false;
     };
     for (const n of m.addedNodes) if (check(n)) return true;

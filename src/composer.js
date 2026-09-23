@@ -346,14 +346,6 @@
     return false;
   }
 
-  function insertAtCursor(editor, text) {
-    const clean = sanitizeForEditor(text);
-    if (clean === "") return;
-    withApplying(editor, () => {
-      exec("insertText", clean);
-    });
-  }
-
   function selectionOffsets(editor) {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) return null;
@@ -687,6 +679,7 @@
 
       const rawFromPaste = state.pasteRaw;
       state.pasteRaw = null;
+      clearTimeout(state.pasteRawTimer);
 
       const raw = rawFromPaste || pasted;
       if (!raw) return;
@@ -917,7 +910,7 @@
 
     let panel = host.querySelector('[data-latex-ext="panel"]');
     if (panel && panel._latexEditor === editor) {
-      if (!host.contains(panel)) host.appendChild(panel);
+      if (!host.contains(panel)) host.prepend(panel);
       refreshPanelLabels(panel);
       return;
     }
