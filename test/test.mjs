@@ -221,7 +221,7 @@ assert(
   { w: C.detect("w Φ∩"), hola: C.detect("hola Φ∩") }
 );
 
-assert("version 1.3.0", C.VERSION === "1.3.0", C.VERSION);
+assert("version 1.4.0", C.VERSION === "1.4.0", C.VERSION);
 
 assert(
   "markdown link text encoded url kept",
@@ -247,13 +247,22 @@ assert("encoding label disabled", cbtn.textContent === "Encoding disabled", cbtn
 
 const autoBtn = cbtn.parentElement.querySelector('[data-latex-ext="auto"]');
 const bulkBtn = cbtn.parentElement.querySelector('[data-latex-ext="bulk"]');
-assert("auto default out", autoBtn && autoBtn.textContent === "Auto out", autoBtn?.textContent);
-assert("bulk default encode all", bulkBtn && bulkBtn.textContent === "Encode all", bulkBtn?.textContent);
+assert("no bulk button", !bulkBtn, bulkBtn?.textContent);
+assert(
+  "auto default out label",
+  autoBtn && autoBtn.textContent === "Encode outgoing only",
+  autoBtn?.textContent
+);
 
-const AUTO_LABELS = { off: "Auto off", out: "Auto out", both: "Auto both" };
+const AUTO_LABELS = {
+  off: "No auto encoding",
+  in: "Decode incoming only",
+  out: "Encode outgoing only",
+  both: "Encode and decode"
+};
 function setAuto(mode) {
   let guard = 0;
-  while (autoBtn.textContent !== AUTO_LABELS[mode] && guard++ < 6) autoBtn.click();
+  while (autoBtn.textContent !== AUTO_LABELS[mode] && guard++ < 8) autoBtn.click();
 }
 const liveBtn = {
   click() {
@@ -1159,23 +1168,55 @@ ed.dispatchEvent(new window.Event("compositionend", { bubbles: true }));
 await wait(10);
 
 setAuto("out");
-assert("auto cycle to out", autoBtn.textContent === "Auto out", autoBtn.textContent);
+assert(
+  "auto out label",
+  autoBtn.textContent === "Encode outgoing only",
+  autoBtn.textContent
+);
 autoBtn.click();
-assert("auto cycle to both", autoBtn.textContent === "Auto both", autoBtn.textContent);
+assert(
+  "auto cycle to both",
+  autoBtn.textContent === "Encode and decode",
+  autoBtn.textContent
+);
 assert(
   "auto both sets message on",
   C.settings.auto === "both" && C.settings.live && C.settings.message,
   C.settings
 );
 autoBtn.click();
-assert("auto cycle to off", autoBtn.textContent === "Auto off", autoBtn.textContent);
+assert(
+  "auto cycle to off",
+  autoBtn.textContent === "No auto encoding",
+  autoBtn.textContent
+);
 assert(
   "auto off clears live and message",
   C.settings.auto === "off" && !C.settings.live && !C.settings.message,
   C.settings
 );
 autoBtn.click();
-assert("auto cycle wraps to out", autoBtn.textContent === "Auto out", autoBtn.textContent);
+assert(
+  "auto cycle to in",
+  autoBtn.textContent === "Decode incoming only",
+  autoBtn.textContent
+);
+assert(
+  "auto in sets message on live off",
+  C.settings.auto === "in" && !C.settings.live && C.settings.message,
+  C.settings
+);
+autoBtn.click();
+assert(
+  "auto cycle wraps to out",
+  autoBtn.textContent === "Encode outgoing only",
+  autoBtn.textContent
+);
+assert(
+  "auto out sets live on message off",
+  C.settings.auto === "out" && C.settings.live && !C.settings.message,
+  C.settings
+);
 
 setAuto("out");
 while (cbtn.dataset.mode !== "disabled") cbtn.click();
@@ -1196,42 +1237,6 @@ assert(
 );
 while (cbtn.dataset.mode !== "disabled") cbtn.click();
 
-setAuto("both");
-await wait(60);
-if (bulkBtn.textContent === "Restore all") {
-  bulkBtn.click();
-  await wait(30);
-}
-assert(
-  "bulk starts encode all",
-  bulkBtn.textContent === "Encode all" && !window.__latexExtBulk.anyApplied(),
-  { btn: bulkBtn.textContent, applied: window.__latexExtBulk.anyApplied() }
-);
-bulkBtn.click();
-await wait(30);
-assert(
-  "bulk encode all applies",
-  !!window.__latexExtBulk && window.__latexExtBulk.anyApplied(),
-  window.__latexExtBulk && window.__latexExtBulk.anyApplied()
-);
-assert(
-  "bulk button becomes restore all",
-  bulkBtn.textContent === "Restore all",
-  bulkBtn.textContent
-);
-bulkBtn.click();
-await wait(30);
-assert(
-  "bulk restore all clears",
-  !window.__latexExtBulk.anyApplied(),
-  window.__latexExtBulk.anyApplied()
-);
-assert(
-  "bulk button back to encode all",
-  bulkBtn.textContent === "Encode all",
-  bulkBtn.textContent
-);
-
 const titleEl = cbtn.parentElement.querySelector(".latex-ext-title");
 assert(
   "stats shown in title after transforms",
@@ -1239,7 +1244,7 @@ assert(
   { stats: C.stats.messages, title: titleEl.textContent }
 );
 
-setAuto("both");
+setAuto("in");
 await wait(50);
 const liPeek = document.getElementById("chat-messages-333");
 const contentPeek = document.getElementById("message-content-333");
@@ -1290,7 +1295,6 @@ if (editTa) {
 }
 
 setAuto("out");
-msgBtn.click && setAuto("out");
 
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));

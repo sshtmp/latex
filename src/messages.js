@@ -300,46 +300,6 @@
     ensureBadge(li, state.origDetect);
   }
 
-  function anyApplied() {
-    let found = false;
-    document.querySelectorAll(MSG_SEL).forEach((li) => {
-      if (found) return;
-      const st = stateFor(li);
-      if (st && (st.applied || st.saved) && !st.peeking) found = true;
-    });
-    return found;
-  }
-
-  function encodeAll() {
-    document.querySelectorAll(MSG_SEL).forEach((li) => {
-      ensureButton(li);
-      if (isShowingApplied(li)) return;
-      const raw = combinedText(li);
-      if (!raw.trim()) return;
-      const d = Core.detect(raw);
-      if (d === "latin") return;
-      applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", d);
-      const st = ensureState(li);
-      st.manual = true;
-      setStateFor(li, st);
-    });
-    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
-  }
-
-  function restoreAll() {
-    document.querySelectorAll(MSG_SEL).forEach((li) => {
-      const st = stateFor(li);
-      if (!st || (!st.applied && !st.saved)) return;
-      restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
-      const s = ensureState(li);
-      s.manual = true;
-      setStateFor(li, s);
-    });
-    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
-  }
-
-  window.__latexExtBulk = { anyApplied, encodeAll, restoreAll };
-
   function attachPeek(btn, li) {
     if (btn._latexExtPeekBound) return;
     btn._latexExtPeekBound = true;

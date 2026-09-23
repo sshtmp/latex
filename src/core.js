@@ -132,7 +132,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
@@ -146,22 +146,24 @@ const VERSION = "1.3.0";
   };
 
   function setAuto(mode) {
-    if (mode !== "off" && mode !== "out" && mode !== "both") return;
+    if (mode !== "off" && mode !== "in" && mode !== "out" && mode !== "both") return;
     settings.auto = mode;
-    settings.live = mode !== "off";
-    settings.message = mode === "both";
+    settings.live = mode === "out" || mode === "both";
+    settings.message = mode === "in" || mode === "both";
   }
 
   function cycleAuto(mode) {
-    if (mode === "off") return "out";
+    if (mode === "off") return "in";
+    if (mode === "in") return "out";
     if (mode === "out") return "both";
     return "off";
   }
 
   function autoLabel(mode) {
-    if (mode === "both") return "Auto both";
-    if (mode === "out") return "Auto out";
-    return "Auto off";
+    if (mode === "both") return "Encode and decode";
+    if (mode === "out") return "Encode outgoing only";
+    if (mode === "in") return "Decode incoming only";
+    return "No auto encoding";
   }
 
   function bumpMessages(n) {
@@ -176,13 +178,14 @@ const VERSION = "1.3.0";
       if (!raw) return;
       const o = JSON.parse(raw);
       if (o && typeof o === "object") {
-        if (o.auto === "off" || o.auto === "out" || o.auto === "both") {
+        if (o.auto === "off" || o.auto === "in" || o.auto === "out" || o.auto === "both") {
           setAuto(o.auto);
           return;
         }
         const live = typeof o.live === "boolean" ? o.live : true;
         const message = typeof o.message === "boolean" ? o.message : false;
-        if (message) setAuto("both");
+        if (message && live) setAuto("both");
+        else if (message) setAuto("in");
         else if (live) setAuto("out");
         else setAuto("off");
       }

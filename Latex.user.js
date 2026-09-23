@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.3.0
+// @version      1.4.0
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -149,7 +149,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-const VERSION = "1.3.0";
+const VERSION = "1.4.0";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
@@ -163,22 +163,24 @@ const VERSION = "1.3.0";
   };
 
   function setAuto(mode) {
-    if (mode !== "off" && mode !== "out" && mode !== "both") return;
+    if (mode !== "off" && mode !== "in" && mode !== "out" && mode !== "both") return;
     settings.auto = mode;
-    settings.live = mode !== "off";
-    settings.message = mode === "both";
+    settings.live = mode === "out" || mode === "both";
+    settings.message = mode === "in" || mode === "both";
   }
 
   function cycleAuto(mode) {
-    if (mode === "off") return "out";
+    if (mode === "off") return "in";
+    if (mode === "in") return "out";
     if (mode === "out") return "both";
     return "off";
   }
 
   function autoLabel(mode) {
-    if (mode === "both") return "Auto both";
-    if (mode === "out") return "Auto out";
-    return "Auto off";
+    if (mode === "both") return "Encode and decode";
+    if (mode === "out") return "Encode outgoing only";
+    if (mode === "in") return "Decode incoming only";
+    return "No auto encoding";
   }
 
   function bumpMessages(n) {
@@ -193,13 +195,14 @@ const VERSION = "1.3.0";
       if (!raw) return;
       const o = JSON.parse(raw);
       if (o && typeof o === "object") {
-        if (o.auto === "off" || o.auto === "out" || o.auto === "both") {
+        if (o.auto === "off" || o.auto === "in" || o.auto === "out" || o.auto === "both") {
           setAuto(o.auto);
           return;
         }
         const live = typeof o.live === "boolean" ? o.live : true;
         const message = typeof o.message === "boolean" ? o.message : false;
-        if (message) setAuto("both");
+        if (message && live) setAuto("both");
+        else if (message) setAuto("in");
         else if (live) setAuto("out");
         else setAuto("off");
       }
@@ -915,13 +918,6 @@ const VERSION = "1.3.0";
     btn.textContent = Core.autoLabel(mode);
   }
 
-  function setBulkLabel(btn) {
-    const bulk = window.__latexExtBulk;
-    const on = !!(bulk && bulk.anyApplied && bulk.anyApplied());
-    btn.dataset.state = on ? "on" : "off";
-    btn.textContent = on ? "Restore all" : "Encode all";
-  }
-
   function setTitleText(panel) {
     const title = panel.querySelector(".latex-ext-title");
     if (!title) return;
@@ -942,10 +938,8 @@ const VERSION = "1.3.0";
     const state = editor ? states.get(editor) : null;
     const enc = panel.querySelector('[data-latex-ext="composer"]');
     const auto = panel.querySelector('[data-latex-ext="auto"]');
-    const bulk = panel.querySelector('[data-latex-ext="bulk"]');
     if (enc) setEncodingLabel(enc, state ? state.mode : "disabled");
     if (auto) setAutoLabel(auto);
-    if (bulk) setBulkLabel(bulk);
     setTitleText(panel);
   }
 
@@ -1005,7 +999,7 @@ const VERSION = "1.3.0";
   function handleAutoToggle() {
     const next = Core.cycleAuto(Core.settings.auto);
     const wasLive = Core.settings.live;
-    const willLive = next !== "off";
+    const willLive = next === "out" || next === "both";
 
     if (wasLive !== willLive) {
       document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
@@ -1047,14 +1041,6 @@ const VERSION = "1.3.0";
 
     refreshAllPanels();
     Core.notifySettings();
-  }
-
-  function handleBulkToggle() {
-    const bulk = window.__latexExtBulk;
-    if (!bulk) return;
-    if (bulk.anyApplied()) bulk.restoreAll();
-    else bulk.encodeAll();
-    refreshAllPanels();
   }
 
   function prepareSend(editor, state) {
@@ -1436,27 +1422,18 @@ const VERSION = "1.3.0";
     autoBtn.type = "button";
     autoBtn.className = "latex-ext-btn";
     autoBtn.dataset.latexExt = "auto";
-    autoBtn.title = "Auto: off, outbound only, or outbound+messages";
-    autoBtn.setAttribute("aria-label", "Auto mode");
+    autoBtn.title =
+      "Automatic encoding: off, decode incoming, encode outgoing, or both";
+    autoBtn.setAttribute(
+      "aria-label",
+      "Automatic encoding mode: off, decode incoming, encode outgoing, or both"
+    );
     autoBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       handleAutoToggle();
     });
     panel.appendChild(autoBtn);
-
-    const bulkBtn = document.createElement("button");
-    bulkBtn.type = "button";
-    bulkBtn.className = "latex-ext-btn";
-    bulkBtn.dataset.latexExt = "bulk";
-    bulkBtn.title = "Encode or restore all visible messages";
-    bulkBtn.setAttribute("aria-label", "Encode or restore all messages");
-    bulkBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleBulkToggle();
-    });
-    panel.appendChild(bulkBtn);
 
     refreshPanelLabels(panel);
 
@@ -1928,46 +1905,6 @@ const VERSION = "1.3.0";
     state.peeking = false;
     ensureBadge(li, state.origDetect);
   }
-
-  function anyApplied() {
-    let found = false;
-    document.querySelectorAll(MSG_SEL).forEach((li) => {
-      if (found) return;
-      const st = stateFor(li);
-      if (st && (st.applied || st.saved) && !st.peeking) found = true;
-    });
-    return found;
-  }
-
-  function encodeAll() {
-    document.querySelectorAll(MSG_SEL).forEach((li) => {
-      ensureButton(li);
-      if (isShowingApplied(li)) return;
-      const raw = combinedText(li);
-      if (!raw.trim()) return;
-      const d = Core.detect(raw);
-      if (d === "latin") return;
-      applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", d);
-      const st = ensureState(li);
-      st.manual = true;
-      setStateFor(li, st);
-    });
-    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
-  }
-
-  function restoreAll() {
-    document.querySelectorAll(MSG_SEL).forEach((li) => {
-      const st = stateFor(li);
-      if (!st || (!st.applied && !st.saved)) return;
-      restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
-      const s = ensureState(li);
-      s.manual = true;
-      setStateFor(li, s);
-    });
-    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
-  }
-
-  window.__latexExtBulk = { anyApplied, encodeAll, restoreAll };
 
   function attachPeek(btn, li) {
     if (btn._latexExtPeekBound) return;

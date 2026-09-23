@@ -467,13 +467,6 @@
     btn.textContent = Core.autoLabel(mode);
   }
 
-  function setBulkLabel(btn) {
-    const bulk = window.__latexExtBulk;
-    const on = !!(bulk && bulk.anyApplied && bulk.anyApplied());
-    btn.dataset.state = on ? "on" : "off";
-    btn.textContent = on ? "Restore all" : "Encode all";
-  }
-
   function setTitleText(panel) {
     const title = panel.querySelector(".latex-ext-title");
     if (!title) return;
@@ -494,10 +487,8 @@
     const state = editor ? states.get(editor) : null;
     const enc = panel.querySelector('[data-latex-ext="composer"]');
     const auto = panel.querySelector('[data-latex-ext="auto"]');
-    const bulk = panel.querySelector('[data-latex-ext="bulk"]');
     if (enc) setEncodingLabel(enc, state ? state.mode : "disabled");
     if (auto) setAutoLabel(auto);
-    if (bulk) setBulkLabel(bulk);
     setTitleText(panel);
   }
 
@@ -557,7 +548,7 @@
   function handleAutoToggle() {
     const next = Core.cycleAuto(Core.settings.auto);
     const wasLive = Core.settings.live;
-    const willLive = next !== "off";
+    const willLive = next === "out" || next === "both";
 
     if (wasLive !== willLive) {
       document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
@@ -599,14 +590,6 @@
 
     refreshAllPanels();
     Core.notifySettings();
-  }
-
-  function handleBulkToggle() {
-    const bulk = window.__latexExtBulk;
-    if (!bulk) return;
-    if (bulk.anyApplied()) bulk.restoreAll();
-    else bulk.encodeAll();
-    refreshAllPanels();
   }
 
   function prepareSend(editor, state) {
@@ -988,27 +971,18 @@
     autoBtn.type = "button";
     autoBtn.className = "latex-ext-btn";
     autoBtn.dataset.latexExt = "auto";
-    autoBtn.title = "Auto: off, outbound only, or outbound+messages";
-    autoBtn.setAttribute("aria-label", "Auto mode");
+    autoBtn.title =
+      "Automatic encoding: off, decode incoming, encode outgoing, or both";
+    autoBtn.setAttribute(
+      "aria-label",
+      "Automatic encoding mode: off, decode incoming, encode outgoing, or both"
+    );
     autoBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
       handleAutoToggle();
     });
     panel.appendChild(autoBtn);
-
-    const bulkBtn = document.createElement("button");
-    bulkBtn.type = "button";
-    bulkBtn.className = "latex-ext-btn";
-    bulkBtn.dataset.latexExt = "bulk";
-    bulkBtn.title = "Encode or restore all visible messages";
-    bulkBtn.setAttribute("aria-label", "Encode or restore all messages");
-    bulkBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleBulkToggle();
-    });
-    panel.appendChild(bulkBtn);
 
     refreshPanelLabels(panel);
 
