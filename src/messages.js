@@ -11,7 +11,32 @@
   const CONTENT_SEL = '[id^="message-content-"]';
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
-  const states = new WeakMap();
+  const states = new Map();
+
+  function stateFor(li) {
+    return states.get(li.id);
+  }
+
+  function setStateFor(li, st) {
+    states.set(li.id, st);
+  }
+
+  function ensureState(li) {
+    let st = states.get(li.id);
+    if (!st) {
+      st = newState();
+      states.set(li.id, st);
+    }
+    return st;
+  }
+
+  function pruneStates() {
+    const alive = new Set();
+    document.querySelectorAll(MSG_SEL).forEach((li) => alive.add(li.id));
+    for (const id of [...states.keys()]) {
+      if (!alive.has(id)) states.delete(id);
+    }
+  }
 
   function isReplyPreview(el) {
     return !!(el instanceof Element && el.closest(REPLY_SEL));
@@ -125,7 +150,7 @@
   }
 
   function refreshLabel(li, btn) {
-    const st = states.get(li);
+    const st = stateFor(li);
     if (st && st.saved && st.displayMode) {
       setButtonMode(btn, st.displayMode);
       return;
@@ -181,7 +206,7 @@
     const source = origDetect || Core.detect(raw);
     const target = toMode || (source === "latin" ? "latex" : "latin");
     const fn = target === "latex" ? Core.encodeToLatex : Core.decodeToLatin;
-    const state = states.get(li) || newState();
+    const state = ensureState(li);
     if (!state.baseSaved) {
       state.baseSaved = nodes.map((n) => n.nodeValue);
     }
@@ -190,14 +215,14 @@
     state.applied = nodes.map((n) => n.nodeValue);
     state.origDetect = source;
     state.displayMode = target;
-    states.set(li, state);
+    setStateFor(li, state);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
     return state;
   }
 
   function restoreBase(li, btn) {
-    const state = states.get(li);
+    const state = stateFor(li);
     const roots = collectTranslatableRoots(li);
     const nodes = collectTextNodes(roots);
     const src = state && state.baseSaved;
@@ -212,32 +237,51 @@
       state.baseSaved = null;
       state.origDetect = null;
       state.displayMode = null;
-      states.set(li, state);
+      setStateFor(li, state);
     }
     ensureBadge(li, null);
     if (btn) refreshLabel(li, btn);
   }
 
   function isShowingApplied(li) {
-    const state = states.get(li);
+    const state = stateFor(li);
     if (!state || !state.applied) return false;
     const nodes = collectTextNodes(collectTranslatableRoots(li));
     return nodesMatch(nodes, state.applied);
   }
 
+  function reconcile(li) {
+    const state = stateFor(li);
+    if (!state || !state.applied) return;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    if (nodesMatch(nodes, state.applied)) return;
+    if (state.baseSaved && nodesMatch(nodes, state.baseSaved)) {
+      state.applied = null;
+      state.saved = null;
+      state.baseSaved = null;
+      state.origDetect = null;
+      state.displayMode = null;
+      setStateFor(li, state);
+      ensureBadge(li, null);
+      return;
+    }
+    setStateFor(li, newState());
+    ensureBadge(li, null);
+  }
+
   function handleToggle(li, btn) {
-    const state = states.get(li) || newState();
+    const state = ensureState(li);
     const wasManual = state.manual;
     state.manual = true;
-    states.set(li, state);
+    setStateFor(li, state);
 
     if (isShowingApplied(li)) {
       if (!wasManual) {
         restoreBase(li, btn);
-        const st = states.get(li);
+        const st = stateFor(li);
         if (st) {
           st.manual = true;
-          states.set(li, st);
+          setStateFor(li, st);
         }
         return;
       }
@@ -265,7 +309,7 @@
 
   function maybeAutoTranslate(li) {
     if (!Core.settings.message) return;
-    const state = states.get(li);
+    const state = stateFor(li);
     if (state && (state.manual || state.saved)) return;
     const raw = combinedText(li);
     if (!raw.trim()) return;
@@ -277,18 +321,12 @@
 
   function resetMessageDefaults() {
     document.querySelectorAll(MSG_SEL).forEach((li) => {
-      const state = states.get(li);
+      const state = stateFor(li);
       if (state && (state.saved || state.applied || state.baseSaved)) {
         restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
       }
-      const st = states.get(li) || newState();
-      st.manual = false;
-      st.baseSaved = null;
-      st.saved = null;
-      st.applied = null;
-      st.origDetect = null;
-      st.displayMode = null;
-      states.set(li, st);
+      const st = newState();
+      setStateFor(li, st);
       ensureBadge(li, null);
       const btn = li.querySelector('[data-latex-ext="msg"]');
       if (btn) refreshLabel(li, btn);
@@ -307,8 +345,9 @@
 
     if (panel && btn) {
       placePanel(panel, btn, sep, container);
-      const st = states.get(li);
+      const st = stateFor(li);
       if (!(st && st.saved)) refreshLabel(li, btn);
+      reconcile(li);
       return;
     }
     if (btn && !panel) btn.remove();
@@ -346,16 +385,18 @@
 
     container.prepend(panel);
     container.insertBefore(sep, panel.nextSibling);
-    states.set(li, states.get(li) || newState());
+    ensureState(li);
   }
 
   function scan() {
     Core.injectStyles(Core.BUTTON_CSS);
+    pruneStates();
     document.querySelectorAll(MSG_SEL).forEach((li) => {
       ensureButton(li);
+      reconcile(li);
       maybeAutoTranslate(li);
       const btn = li.querySelector('[data-latex-ext="msg"]');
-      const st = states.get(li);
+      const st = stateFor(li);
       if (btn && !(st && st.saved)) refreshLabel(li, btn);
     });
   }
@@ -383,7 +424,23 @@
 
   window.addEventListener("latex-ext-settings-changed", onSettingsChanged);
 
-  new MutationObserver(scheduleScan).observe(document.documentElement, {
+  function mutationRelevant(m) {
+    const check = (n) => {
+      if (!n || n.nodeType !== 1) return false;
+      if (n.matches && (n.matches(MSG_SEL) || n.matches("[data-latex-ext]")))
+        return true;
+      if (n.querySelector && (n.querySelector(MSG_SEL) || n.querySelector("[data-latex-ext]")))
+        return true;
+      return false;
+    };
+    for (const n of m.addedNodes) if (check(n)) return true;
+    for (const n of m.removedNodes) if (check(n)) return true;
+    return false;
+  }
+
+  new MutationObserver((ms) => {
+    if (ms.some(mutationRelevant)) scheduleScan();
+  }).observe(document.documentElement, {
     childList: true,
     subtree: true
   });

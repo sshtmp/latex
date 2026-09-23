@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.1.2
+// @version      1.2.0
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -74,17 +74,25 @@
   }
 
   const COMBINING_RE = /\p{M}+/gu;
-  const EMOJI_SPLIT_RE = /(<a?:[a-zA-Z0-9_]+:\d+>|:[a-zA-Z0-9_+-]+:)/;
+  const PROTECT_RE =
+    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(\[[^\]\n]*\]\([^)\s]+\))|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
 
   function stripDiacritics(ch) {
     return ch.normalize("NFD").replace(COMBINING_RE, "");
   }
 
-  function mapOutsideEmoji(text, fn) {
-    return text
-      .split(EMOJI_SPLIT_RE)
-      .map((part, i) => (i % 2 === 1 ? part : fn(part)))
-      .join("");
+  function mapOutsideProtected(text, fn) {
+    let out = "";
+    let last = 0;
+    PROTECT_RE.lastIndex = 0;
+    let m;
+    while ((m = PROTECT_RE.exec(text))) {
+      out += fn(text.slice(last, m.index));
+      out += m[0];
+      last = m.index + m[0].length;
+    }
+    out += fn(text.slice(last));
+    return out;
   }
 
   function encodeChunk(text) {
@@ -113,11 +121,11 @@
   }
 
   function encodeToLatex(text) {
-    return mapOutsideEmoji(text, encodeChunk);
+    return mapOutsideProtected(text, encodeChunk);
   }
 
   function decodeToLatin(text) {
-    return mapOutsideEmoji(text, decodeChunk);
+    return mapOutsideProtected(text, decodeChunk);
   }
 
   function detect(text) {
@@ -125,6 +133,7 @@
     let latex = 0;
     for (const ch of text) {
       if (LATEX_CHARS.has(ch)) latex++;
+      else if (MAP[ch] !== undefined && MAP[ch] === ch) continue;
       else if (/\p{Script=Latin}/u.test(ch)) latin++;
     }
     if (latex > 0 && latin > 0) return "mixed";
@@ -140,12 +149,40 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.1.2";
+  const VERSION = "1.2.0";
+  const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
     live: true,
     message: false
   };
+
+  function loadSettings() {
+    try {
+      const ls = window.localStorage;
+      if (!ls) return;
+      const raw = ls.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const o = JSON.parse(raw);
+      if (o && typeof o === "object") {
+        if (typeof o.live === "boolean") settings.live = o.live;
+        if (typeof o.message === "boolean") settings.message = o.message;
+      }
+    } catch (_) {}
+  }
+
+  function saveSettings() {
+    try {
+      const ls = window.localStorage;
+      if (!ls) return;
+      ls.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ live: settings.live, message: settings.message })
+      );
+    } catch (_) {}
+  }
+
+  loadSettings();
 
   function injectStyles(css) {
     const ID = "latex-ext-styles";
@@ -161,6 +198,7 @@
   }
 
   function notifySettings() {
+    saveSettings();
     const E = window.CustomEvent || CustomEvent;
     window.dispatchEvent(new E("latex-ext-settings-changed"));
   }
@@ -357,6 +395,8 @@
     translate,
     injectStyles,
     notifySettings,
+    loadSettings,
+    saveSettings,
     settings,
     BUTTON_CSS
   };
@@ -991,7 +1031,7 @@
     const current = getComposerTextStrict(editor);
     if (current === expected) return;
     const diff = computeDiff(expected, current);
-    if (!diff || diff.kind !== "delete") return;
+    if (!diff) return;
     applyDiffToOriginal(state, diff);
   }
 
@@ -1013,6 +1053,7 @@
     if (state.mode === "disabled" || !Core.settings.live) return;
 
     const t = e.inputType || "";
+    if (e.isComposing || t === "insertCompositionText") return;
 
     if (t === "insertText" && e.data != null) {
       const raw = e.data;
@@ -1104,6 +1145,10 @@
     if (!text) return;
 
     state.pasteRaw = text;
+    clearTimeout(state.pasteRawTimer);
+    state.pasteRawTimer = setTimeout(() => {
+      state.pasteRaw = null;
+    }, 500);
 
     const selOff = selectionOffsets(editor);
     const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
@@ -1189,11 +1234,31 @@
     prepareSend(editor, state);
   }
 
+  function onCompositionEnd(e) {
+    const editor = editorFromTarget(e.target);
+    if (!editor) return;
+    const state = states.get(editor);
+    if (!state || state.applying) return;
+    if (state.mode === "disabled" || !Core.settings.live) {
+      state.original = getComposerTextStrict(editor);
+      return;
+    }
+    const current = getComposerTextStrict(editor);
+    if (!current) {
+      state.original = "";
+      return;
+    }
+    state.original = recoverOriginal(state, current);
+    const display = displayFor(state);
+    if (display !== current) setComposerText(editor, display);
+  }
+
   function bindGlobal() {
     if (bound) return;
     bound = true;
     window.addEventListener("beforeinput", handleBeforeInput, true);
     window.addEventListener("paste", handlePaste, true);
+    window.addEventListener("compositionend", onCompositionEnd, true);
     window.addEventListener(
       "keydown",
       (e) => {
@@ -1360,7 +1425,31 @@
     scan();
   }
 
-  new MutationObserver(scheduleScan).observe(document.documentElement, {
+  function mutationRelevant(m) {
+    const check = (n) => {
+      if (!n || n.nodeType !== 1) return false;
+      if (
+        n.matches &&
+        (n.matches(EDITOR_SEL) || n.matches("[data-latex-ext]"))
+      ) {
+        return true;
+      }
+      if (
+        n.querySelector &&
+        (n.querySelector(EDITOR_SEL) || n.querySelector("[data-latex-ext]"))
+      ) {
+        return true;
+      }
+      return false;
+    };
+    for (const n of m.addedNodes) if (check(n)) return true;
+    for (const n of m.removedNodes) if (check(n)) return true;
+    return false;
+  }
+
+  new MutationObserver((ms) => {
+    if (ms.some(mutationRelevant)) scheduleScan();
+  }).observe(document.documentElement, {
     childList: true,
     subtree: true
   });
@@ -1380,7 +1469,32 @@
   const CONTENT_SEL = '[id^="message-content-"]';
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
-  const states = new WeakMap();
+  const states = new Map();
+
+  function stateFor(li) {
+    return states.get(li.id);
+  }
+
+  function setStateFor(li, st) {
+    states.set(li.id, st);
+  }
+
+  function ensureState(li) {
+    let st = states.get(li.id);
+    if (!st) {
+      st = newState();
+      states.set(li.id, st);
+    }
+    return st;
+  }
+
+  function pruneStates() {
+    const alive = new Set();
+    document.querySelectorAll(MSG_SEL).forEach((li) => alive.add(li.id));
+    for (const id of [...states.keys()]) {
+      if (!alive.has(id)) states.delete(id);
+    }
+  }
 
   function isReplyPreview(el) {
     return !!(el instanceof Element && el.closest(REPLY_SEL));
@@ -1494,7 +1608,7 @@
   }
 
   function refreshLabel(li, btn) {
-    const st = states.get(li);
+    const st = stateFor(li);
     if (st && st.saved && st.displayMode) {
       setButtonMode(btn, st.displayMode);
       return;
@@ -1550,7 +1664,7 @@
     const source = origDetect || Core.detect(raw);
     const target = toMode || (source === "latin" ? "latex" : "latin");
     const fn = target === "latex" ? Core.encodeToLatex : Core.decodeToLatin;
-    const state = states.get(li) || newState();
+    const state = ensureState(li);
     if (!state.baseSaved) {
       state.baseSaved = nodes.map((n) => n.nodeValue);
     }
@@ -1559,14 +1673,14 @@
     state.applied = nodes.map((n) => n.nodeValue);
     state.origDetect = source;
     state.displayMode = target;
-    states.set(li, state);
+    setStateFor(li, state);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
     return state;
   }
 
   function restoreBase(li, btn) {
-    const state = states.get(li);
+    const state = stateFor(li);
     const roots = collectTranslatableRoots(li);
     const nodes = collectTextNodes(roots);
     const src = state && state.baseSaved;
@@ -1581,32 +1695,51 @@
       state.baseSaved = null;
       state.origDetect = null;
       state.displayMode = null;
-      states.set(li, state);
+      setStateFor(li, state);
     }
     ensureBadge(li, null);
     if (btn) refreshLabel(li, btn);
   }
 
   function isShowingApplied(li) {
-    const state = states.get(li);
+    const state = stateFor(li);
     if (!state || !state.applied) return false;
     const nodes = collectTextNodes(collectTranslatableRoots(li));
     return nodesMatch(nodes, state.applied);
   }
 
+  function reconcile(li) {
+    const state = stateFor(li);
+    if (!state || !state.applied) return;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    if (nodesMatch(nodes, state.applied)) return;
+    if (state.baseSaved && nodesMatch(nodes, state.baseSaved)) {
+      state.applied = null;
+      state.saved = null;
+      state.baseSaved = null;
+      state.origDetect = null;
+      state.displayMode = null;
+      setStateFor(li, state);
+      ensureBadge(li, null);
+      return;
+    }
+    setStateFor(li, newState());
+    ensureBadge(li, null);
+  }
+
   function handleToggle(li, btn) {
-    const state = states.get(li) || newState();
+    const state = ensureState(li);
     const wasManual = state.manual;
     state.manual = true;
-    states.set(li, state);
+    setStateFor(li, state);
 
     if (isShowingApplied(li)) {
       if (!wasManual) {
         restoreBase(li, btn);
-        const st = states.get(li);
+        const st = stateFor(li);
         if (st) {
           st.manual = true;
-          states.set(li, st);
+          setStateFor(li, st);
         }
         return;
       }
@@ -1634,7 +1767,7 @@
 
   function maybeAutoTranslate(li) {
     if (!Core.settings.message) return;
-    const state = states.get(li);
+    const state = stateFor(li);
     if (state && (state.manual || state.saved)) return;
     const raw = combinedText(li);
     if (!raw.trim()) return;
@@ -1646,18 +1779,12 @@
 
   function resetMessageDefaults() {
     document.querySelectorAll(MSG_SEL).forEach((li) => {
-      const state = states.get(li);
+      const state = stateFor(li);
       if (state && (state.saved || state.applied || state.baseSaved)) {
         restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
       }
-      const st = states.get(li) || newState();
-      st.manual = false;
-      st.baseSaved = null;
-      st.saved = null;
-      st.applied = null;
-      st.origDetect = null;
-      st.displayMode = null;
-      states.set(li, st);
+      const st = newState();
+      setStateFor(li, st);
       ensureBadge(li, null);
       const btn = li.querySelector('[data-latex-ext="msg"]');
       if (btn) refreshLabel(li, btn);
@@ -1676,8 +1803,9 @@
 
     if (panel && btn) {
       placePanel(panel, btn, sep, container);
-      const st = states.get(li);
+      const st = stateFor(li);
       if (!(st && st.saved)) refreshLabel(li, btn);
+      reconcile(li);
       return;
     }
     if (btn && !panel) btn.remove();
@@ -1715,16 +1843,18 @@
 
     container.prepend(panel);
     container.insertBefore(sep, panel.nextSibling);
-    states.set(li, states.get(li) || newState());
+    ensureState(li);
   }
 
   function scan() {
     Core.injectStyles(Core.BUTTON_CSS);
+    pruneStates();
     document.querySelectorAll(MSG_SEL).forEach((li) => {
       ensureButton(li);
+      reconcile(li);
       maybeAutoTranslate(li);
       const btn = li.querySelector('[data-latex-ext="msg"]');
-      const st = states.get(li);
+      const st = stateFor(li);
       if (btn && !(st && st.saved)) refreshLabel(li, btn);
     });
   }
@@ -1752,7 +1882,23 @@
 
   window.addEventListener("latex-ext-settings-changed", onSettingsChanged);
 
-  new MutationObserver(scheduleScan).observe(document.documentElement, {
+  function mutationRelevant(m) {
+    const check = (n) => {
+      if (!n || n.nodeType !== 1) return false;
+      if (n.matches && (n.matches(MSG_SEL) || n.matches("[data-latex-ext]")))
+        return true;
+      if (n.querySelector && (n.querySelector(MSG_SEL) || n.querySelector("[data-latex-ext]")))
+        return true;
+      return false;
+    };
+    for (const n of m.addedNodes) if (check(n)) return true;
+    for (const n of m.removedNodes) if (check(n)) return true;
+    return false;
+  }
+
+  new MutationObserver((ms) => {
+    if (ms.some(mutationRelevant)) scheduleScan();
+  }).observe(document.documentElement, {
     childList: true,
     subtree: true
   });

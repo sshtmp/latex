@@ -627,7 +627,7 @@
     const current = getComposerTextStrict(editor);
     if (current === expected) return;
     const diff = computeDiff(expected, current);
-    if (!diff || diff.kind !== "delete") return;
+    if (!diff) return;
     applyDiffToOriginal(state, diff);
   }
 
@@ -649,6 +649,7 @@
     if (state.mode === "disabled" || !Core.settings.live) return;
 
     const t = e.inputType || "";
+    if (e.isComposing || t === "insertCompositionText") return;
 
     if (t === "insertText" && e.data != null) {
       const raw = e.data;
@@ -740,6 +741,10 @@
     if (!text) return;
 
     state.pasteRaw = text;
+    clearTimeout(state.pasteRawTimer);
+    state.pasteRawTimer = setTimeout(() => {
+      state.pasteRaw = null;
+    }, 500);
 
     const selOff = selectionOffsets(editor);
     const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
@@ -825,11 +830,31 @@
     prepareSend(editor, state);
   }
 
+  function onCompositionEnd(e) {
+    const editor = editorFromTarget(e.target);
+    if (!editor) return;
+    const state = states.get(editor);
+    if (!state || state.applying) return;
+    if (state.mode === "disabled" || !Core.settings.live) {
+      state.original = getComposerTextStrict(editor);
+      return;
+    }
+    const current = getComposerTextStrict(editor);
+    if (!current) {
+      state.original = "";
+      return;
+    }
+    state.original = recoverOriginal(state, current);
+    const display = displayFor(state);
+    if (display !== current) setComposerText(editor, display);
+  }
+
   function bindGlobal() {
     if (bound) return;
     bound = true;
     window.addEventListener("beforeinput", handleBeforeInput, true);
     window.addEventListener("paste", handlePaste, true);
+    window.addEventListener("compositionend", onCompositionEnd, true);
     window.addEventListener(
       "keydown",
       (e) => {
@@ -996,7 +1021,31 @@
     scan();
   }
 
-  new MutationObserver(scheduleScan).observe(document.documentElement, {
+  function mutationRelevant(m) {
+    const check = (n) => {
+      if (!n || n.nodeType !== 1) return false;
+      if (
+        n.matches &&
+        (n.matches(EDITOR_SEL) || n.matches("[data-latex-ext]"))
+      ) {
+        return true;
+      }
+      if (
+        n.querySelector &&
+        (n.querySelector(EDITOR_SEL) || n.querySelector("[data-latex-ext]"))
+      ) {
+        return true;
+      }
+      return false;
+    };
+    for (const n of m.addedNodes) if (check(n)) return true;
+    for (const n of m.removedNodes) if (check(n)) return true;
+    return false;
+  }
+
+  new MutationObserver((ms) => {
+    if (ms.some(mutationRelevant)) scheduleScan();
+  }).observe(document.documentElement, {
     childList: true,
     subtree: true
   });

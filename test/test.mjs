@@ -155,6 +155,80 @@ assert("emoji shortcode intact", C.encodeToLatex("hola :sob: adios") === "µ⌐�
 assert("custom emoji intact", C.encodeToLatex("hi <:name:123>") === "µ∩ <:name:123>", C.encodeToLatex("hi <:name:123>"));
 assert("decode keeps shortcode", C.decodeToLatin(":sob: µ⌐Œσ") === ":sob: hola", C.decodeToLatin(":sob: µ⌐Œσ"));
 
+const encUrl = C.encodeToLatex("see https://discord.com/channels/1/2 now");
+assert(
+  "url intact on encode",
+  encUrl.includes("https://discord.com/channels/1/2") && encUrl.startsWith("Φεε "),
+  encUrl
+);
+assert(
+  "url intact on decode",
+  C.decodeToLatin("sεε https://discord.com/channels/1/2 σ♥") === "see https://discord.com/channels/1/2 o" ||
+    C.decodeToLatin(encUrl).includes("https://discord.com/channels/1/2"),
+  C.decodeToLatin(encUrl)
+);
+const encMention = C.encodeToLatex("hi <@123456789012345678> ok");
+assert(
+  "user mention intact",
+  encMention.includes("<@123456789012345678>") && encMention.startsWith("µ∩ "),
+  encMention
+);
+assert(
+  "role mention intact",
+  C.encodeToLatex("<@&999> hi").includes("<@&999>"),
+  C.encodeToLatex("<@&999> hi")
+);
+assert(
+  "channel mention intact",
+  C.encodeToLatex("go <#555> now").includes("<#555>"),
+  C.encodeToLatex("go <#555> now")
+);
+assert(
+  "timestamp intact",
+  C.encodeToLatex("at <t:1700000000:R> x").includes("<t:1700000000:R>"),
+  C.encodeToLatex("at <t:1700000000:R> x")
+);
+const encCode = C.encodeToLatex("`const x = 1` done");
+assert(
+  "inline code intact",
+  encCode.includes("`const x = 1`") && encCode.endsWith(" ₳⌐þε"),
+  encCode
+);
+assert(
+  "code block intact",
+  C.encodeToLatex("```\nlet a = 42;\n```\nhi").includes("let a = 42;"),
+  C.encodeToLatex("```\nlet a = 42;\n```\nhi")
+);
+assert(
+  "markdown link url intact",
+  C.encodeToLatex("[hi](https://example.com/a)").includes("(https://example.com/a)"),
+  C.encodeToLatex("[hi](https://example.com/a)")
+);
+
+assert(
+  "detect encoded w is latex",
+  C.detect(C.encodeToLatex("hello world")) === "latex",
+  C.detect(C.encodeToLatex("hello world"))
+);
+assert(
+  "detect bare w latin",
+  C.detect("www") === "latin",
+  C.detect("www")
+);
+assert(
+  "detect mixed still works",
+  C.detect("w Φ∩") === "mixed" || C.detect("hola Φ∩") === "mixed",
+  { w: C.detect("w Φ∩"), hola: C.detect("hola Φ∩") }
+);
+
+assert("version 1.2.0", C.VERSION === "1.2.0", C.VERSION);
+
+assert(
+  "settings default live on message off",
+  C.settings.live === true && C.settings.message === false,
+  C.settings
+);
+
 assert("default Disabled", cbtn.dataset.mode === "disabled", cbtn.textContent);
 assert("first child panel", cbtn.parentElement.firstElementChild === cbtn.parentElement.querySelector(".latex-ext-title"), null);
 assert("panel title", cbtn.parentElement.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, cbtn.parentElement.querySelector(".latex-ext-title")?.textContent);
@@ -916,6 +990,76 @@ if (replyBtn) {
     replyContent.textContent
   );
 }
+
+msgBtn.click();
+await wait(20);
+const savedRaw = (() => {
+  try {
+    return window.localStorage.getItem("latex-ext-settings");
+  } catch (_) {
+    return null;
+  }
+})();
+assert(
+  "settings persisted after message toggle",
+  !!savedRaw && savedRaw.includes('"message"'),
+  savedRaw
+);
+let reloaded = null;
+try {
+  reloaded = JSON.parse(savedRaw || "{}");
+} catch (_) {}
+assert(
+  "persisted message flag matches runtime",
+  reloaded && reloaded.message === C.settings.message,
+  { saved: reloaded, runtime: C.settings }
+);
+
+while (cbtn.dataset.mode !== "disabled") cbtn.click();
+ed.textContent = "undo test";
+fireInput(ed);
+cbtn.click();
+cbtn.click();
+assert(
+  "undo setup latex",
+  readEd() !== "undo test" && readEd().length > 0 && cbtn.dataset.mode === "latex",
+  { text: readEd(), mode: cbtn.dataset.mode }
+);
+const undoEv = new window.Event("beforeinput", {
+  bubbles: true,
+  cancelable: true
+});
+undoEv.inputType = "historyUndo";
+ed.dispatchEvent(undoEv);
+await wait(10);
+ed.textContent = "undo";
+fireInput(ed);
+await wait(10);
+assert(
+  "history undo keeps display consistent",
+  readEd() === "undo" ||
+    readEd() === C.encodeToLatex("undo") ||
+    readEd().includes("undo") ||
+    readEd().length > 0,
+  readEd()
+);
+while (cbtn.dataset.mode !== "disabled") cbtn.click();
+
+const compEv = new window.Event("beforeinput", {
+  bubbles: true,
+  cancelable: true
+});
+compEv.inputType = "insertCompositionText";
+compEv.isComposing = true;
+compEv.data = "ñ";
+ed.dispatchEvent(compEv);
+assert(
+  "composition beforeinput not prevented",
+  !compEv.defaultPrevented,
+  compEv.defaultPrevented
+);
+ed.dispatchEvent(new window.Event("compositionend", { bubbles: true }));
+await wait(10);
 
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));

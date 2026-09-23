@@ -57,17 +57,25 @@
   }
 
   const COMBINING_RE = /\p{M}+/gu;
-  const EMOJI_SPLIT_RE = /(<a?:[a-zA-Z0-9_]+:\d+>|:[a-zA-Z0-9_+-]+:)/;
+  const PROTECT_RE =
+    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(\[[^\]\n]*\]\([^)\s]+\))|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
 
   function stripDiacritics(ch) {
     return ch.normalize("NFD").replace(COMBINING_RE, "");
   }
 
-  function mapOutsideEmoji(text, fn) {
-    return text
-      .split(EMOJI_SPLIT_RE)
-      .map((part, i) => (i % 2 === 1 ? part : fn(part)))
-      .join("");
+  function mapOutsideProtected(text, fn) {
+    let out = "";
+    let last = 0;
+    PROTECT_RE.lastIndex = 0;
+    let m;
+    while ((m = PROTECT_RE.exec(text))) {
+      out += fn(text.slice(last, m.index));
+      out += m[0];
+      last = m.index + m[0].length;
+    }
+    out += fn(text.slice(last));
+    return out;
   }
 
   function encodeChunk(text) {
@@ -96,11 +104,11 @@
   }
 
   function encodeToLatex(text) {
-    return mapOutsideEmoji(text, encodeChunk);
+    return mapOutsideProtected(text, encodeChunk);
   }
 
   function decodeToLatin(text) {
-    return mapOutsideEmoji(text, decodeChunk);
+    return mapOutsideProtected(text, decodeChunk);
   }
 
   function detect(text) {
@@ -108,6 +116,7 @@
     let latex = 0;
     for (const ch of text) {
       if (LATEX_CHARS.has(ch)) latex++;
+      else if (MAP[ch] !== undefined && MAP[ch] === ch) continue;
       else if (/\p{Script=Latin}/u.test(ch)) latin++;
     }
     if (latex > 0 && latin > 0) return "mixed";
@@ -123,12 +132,40 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.1.2";
+  const VERSION = "1.2.0";
+  const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
     live: true,
     message: false
   };
+
+  function loadSettings() {
+    try {
+      const ls = window.localStorage;
+      if (!ls) return;
+      const raw = ls.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const o = JSON.parse(raw);
+      if (o && typeof o === "object") {
+        if (typeof o.live === "boolean") settings.live = o.live;
+        if (typeof o.message === "boolean") settings.message = o.message;
+      }
+    } catch (_) {}
+  }
+
+  function saveSettings() {
+    try {
+      const ls = window.localStorage;
+      if (!ls) return;
+      ls.setItem(
+        STORAGE_KEY,
+        JSON.stringify({ live: settings.live, message: settings.message })
+      );
+    } catch (_) {}
+  }
+
+  loadSettings();
 
   function injectStyles(css) {
     const ID = "latex-ext-styles";
@@ -144,6 +181,7 @@
   }
 
   function notifySettings() {
+    saveSettings();
     const E = window.CustomEvent || CustomEvent;
     window.dispatchEvent(new E("latex-ext-settings-changed"));
   }
@@ -340,6 +378,8 @@
     translate,
     injectStyles,
     notifySettings,
+    loadSettings,
+    saveSettings,
     settings,
     BUTTON_CSS
   };
