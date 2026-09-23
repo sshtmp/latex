@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.2.1
+// @version      1.3.0
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -149,13 +149,41 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.2.1";
+const VERSION = "1.3.0";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
+    auto: "out",
     live: true,
     message: false
   };
+
+  const stats = {
+    messages: 0
+  };
+
+  function setAuto(mode) {
+    if (mode !== "off" && mode !== "out" && mode !== "both") return;
+    settings.auto = mode;
+    settings.live = mode !== "off";
+    settings.message = mode === "both";
+  }
+
+  function cycleAuto(mode) {
+    if (mode === "off") return "out";
+    if (mode === "out") return "both";
+    return "off";
+  }
+
+  function autoLabel(mode) {
+    if (mode === "both") return "Auto both";
+    if (mode === "out") return "Auto out";
+    return "Auto off";
+  }
+
+  function bumpMessages(n) {
+    stats.messages += n == null ? 1 : n;
+  }
 
   function loadSettings() {
     try {
@@ -165,8 +193,15 @@
       if (!raw) return;
       const o = JSON.parse(raw);
       if (o && typeof o === "object") {
-        if (typeof o.live === "boolean") settings.live = o.live;
-        if (typeof o.message === "boolean") settings.message = o.message;
+        if (o.auto === "off" || o.auto === "out" || o.auto === "both") {
+          setAuto(o.auto);
+          return;
+        }
+        const live = typeof o.live === "boolean" ? o.live : true;
+        const message = typeof o.message === "boolean" ? o.message : false;
+        if (message) setAuto("both");
+        else if (live) setAuto("out");
+        else setAuto("off");
       }
     } catch (_) {}
   }
@@ -177,7 +212,11 @@
       if (!ls) return;
       ls.setItem(
         STORAGE_KEY,
-        JSON.stringify({ live: settings.live, message: settings.message })
+        JSON.stringify({
+          auto: settings.auto,
+          live: settings.live,
+          message: settings.message
+        })
       );
     } catch (_) {}
   }
@@ -397,6 +436,11 @@
     notifySettings,
     loadSettings,
     saveSettings,
+    setAuto,
+    cycleAuto,
+    autoLabel,
+    bumpMessages,
+    stats,
     settings,
     BUTTON_CSS
   };
@@ -864,20 +908,26 @@
           : "Encoding disabled";
   }
 
-  function setLiveLabel(btn) {
-    const on = Core.settings.live;
-    btn.dataset.state = on ? "on" : "off";
-    btn.textContent = on
-      ? "Live encoding enabled"
-      : "Live encoding disabled";
+  function setAutoLabel(btn) {
+    const mode = Core.settings.auto;
+    btn.dataset.state = mode === "off" ? "off" : "on";
+    btn.dataset.auto = mode;
+    btn.textContent = Core.autoLabel(mode);
   }
 
-  function setMessageLabel(btn) {
-    const on = Core.settings.message;
+  function setBulkLabel(btn) {
+    const bulk = window.__latexExtBulk;
+    const on = !!(bulk && bulk.anyApplied && bulk.anyApplied());
     btn.dataset.state = on ? "on" : "off";
-    btn.textContent = on
-      ? "Message encoding enabled"
-      : "Message encoding disabled";
+    btn.textContent = on ? "Restore all" : "Encode all";
+  }
+
+  function setTitleText(panel) {
+    const title = panel.querySelector(".latex-ext-title");
+    if (!title) return;
+    let t = "LATEX v" + Core.VERSION;
+    if (Core.stats.messages > 0) t += " · " + Core.stats.messages;
+    title.textContent = t;
   }
 
   function refreshAllPanels() {
@@ -885,16 +935,18 @@
       .querySelectorAll('[data-latex-ext="panel"]')
       .forEach(refreshPanelLabels);
   }
+  window.__latexExtBulkRefresh = refreshAllPanels;
 
   function refreshPanelLabels(panel) {
     const editor = panel._latexEditor;
     const state = editor ? states.get(editor) : null;
     const enc = panel.querySelector('[data-latex-ext="composer"]');
-    const live = panel.querySelector('[data-latex-ext="live"]');
-    const msg = panel.querySelector('[data-latex-ext="msgauto"]');
+    const auto = panel.querySelector('[data-latex-ext="auto"]');
+    const bulk = panel.querySelector('[data-latex-ext="bulk"]');
     if (enc) setEncodingLabel(enc, state ? state.mode : "disabled");
-    if (live) setLiveLabel(live);
-    if (msg) setMessageLabel(msg);
+    if (auto) setAutoLabel(auto);
+    if (bulk) setBulkLabel(bulk);
+    setTitleText(panel);
   }
 
   function getState(editor) {
@@ -950,49 +1002,59 @@
     return current;
   }
 
-  function handleLiveToggle() {
+  function handleAutoToggle() {
+    const next = Core.cycleAuto(Core.settings.auto);
     const wasLive = Core.settings.live;
-    document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
-      const state = states.get(editor);
-      if (!state) return;
-      if (syncIfEmpty(editor, state)) return;
-      const current = getComposerTextStrict(editor);
-      if (!current) {
+    const willLive = next !== "off";
+
+    if (wasLive !== willLive) {
+      document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
+        const state = states.get(editor);
+        if (!state) return;
+        if (syncIfEmpty(editor, state)) return;
+        const current = getComposerTextStrict(editor);
+        if (!current) {
+          state.sending = false;
+          state.pendingSend = false;
+          return;
+        }
+        const wasSending = state.sending || state.pendingSend;
         state.sending = false;
         state.pendingSend = false;
-        return;
-      }
-      const wasSending = state.sending || state.pendingSend;
-      state.sending = false;
-      state.pendingSend = false;
-      if (!wasLive) {
-        if (!wasSending) state.original = current;
-      } else {
-        const expected = displayFor(state);
-        if (current !== expected) {
-          state.original = recoverOriginal(state, current);
+        if (!wasLive) {
+          if (!wasSending) state.original = current;
+        } else {
+          const expected = displayFor(state);
+          if (current !== expected) {
+            state.original = recoverOriginal(state, current);
+          }
         }
-      }
-    });
+      });
+    }
 
-    Core.settings.live = !wasLive;
+    Core.setAuto(next);
 
-    document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
-      const state = states.get(editor);
-      if (!state) return;
-      if (syncIfEmpty(editor, state)) return;
-      const display = displayFor(state);
-      const current = getComposerTextStrict(editor);
-      if (display !== current) setComposerText(editor, display);
-    });
+    if (wasLive !== willLive) {
+      document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
+        const state = states.get(editor);
+        if (!state) return;
+        if (syncIfEmpty(editor, state)) return;
+        const display = displayFor(state);
+        const current = getComposerTextStrict(editor);
+        if (display !== current) setComposerText(editor, display);
+      });
+    }
+
     refreshAllPanels();
     Core.notifySettings();
   }
 
-  function handleMessageToggle() {
-    Core.settings.message = !Core.settings.message;
+  function handleBulkToggle() {
+    const bulk = window.__latexExtBulk;
+    if (!bulk) return;
+    if (bulk.anyApplied()) bulk.restoreAll();
+    else bulk.encodeAll();
     refreshAllPanels();
-    Core.notifySettings();
   }
 
   function prepareSend(editor, state) {
@@ -1007,6 +1069,8 @@
     if (raw === target) return;
     state.original = raw;
     state.sending = true;
+    Core.bumpMessages(1);
+    refreshAllPanels();
     setComposerText(editor, target);
   }
 
@@ -1252,6 +1316,28 @@
     window.addEventListener("beforeinput", handleBeforeInput, true);
     window.addEventListener("paste", handlePaste, true);
     window.addEventListener("compositionend", onCompositionEnd, true);
+    window.addEventListener("keydown", (e) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+      const k = e.key || "";
+      if (k !== "L" && k !== "l") return;
+      e.preventDefault();
+      let editor = editorFromTarget(document.activeElement);
+      if (!editor || !isComposerEditor(editor)) {
+        editor = null;
+        document.querySelectorAll(EDITOR_SEL).forEach((ed) => {
+          if (!editor && isComposerEditor(ed)) editor = ed;
+        });
+      }
+      if (!editor) return;
+      let encBtn = null;
+      document.querySelectorAll('[data-latex-ext="panel"]').forEach((p) => {
+        if (p._latexEditor === editor) {
+          encBtn = p.querySelector('[data-latex-ext="composer"]');
+        }
+      });
+      if (!encBtn) encBtn = document.querySelector('[data-latex-ext="composer"]');
+      if (encBtn) handleToggle(editor, encBtn);
+    });
     window.addEventListener(
       "keydown",
       (e) => {
@@ -1337,7 +1423,7 @@
     encBtn.type = "button";
     encBtn.className = "latex-ext-btn";
     encBtn.dataset.latexExt = "composer";
-    encBtn.title = "Cycle encoding mode";
+    encBtn.title = "Cycle encoding mode (Ctrl+Shift+L)";
     encBtn.setAttribute("aria-label", "Cycle encoding mode");
     encBtn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -1346,34 +1432,31 @@
     });
     panel.appendChild(encBtn);
 
-    const liveBtn = document.createElement("button");
-    liveBtn.type = "button";
-    liveBtn.className = "latex-ext-btn";
-    liveBtn.dataset.latexExt = "live";
-    liveBtn.title = "Auto-encode while typing; off encodes only on send";
-    liveBtn.setAttribute(
-      "aria-label",
-      "Auto-encode while typing; off encodes only on send"
-    );
-    liveBtn.addEventListener("click", (e) => {
+    const autoBtn = document.createElement("button");
+    autoBtn.type = "button";
+    autoBtn.className = "latex-ext-btn";
+    autoBtn.dataset.latexExt = "auto";
+    autoBtn.title = "Auto: off, outbound only, or outbound+messages";
+    autoBtn.setAttribute("aria-label", "Auto mode");
+    autoBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      handleLiveToggle();
+      handleAutoToggle();
     });
-    panel.appendChild(liveBtn);
+    panel.appendChild(autoBtn);
 
-    const msgBtn = document.createElement("button");
-    msgBtn.type = "button";
-    msgBtn.className = "latex-ext-btn";
-    msgBtn.dataset.latexExt = "msgauto";
-    msgBtn.title = "Auto-encode incoming Latex messages";
-    msgBtn.setAttribute("aria-label", "Auto-encode incoming Latex messages");
-    msgBtn.addEventListener("click", (e) => {
+    const bulkBtn = document.createElement("button");
+    bulkBtn.type = "button";
+    bulkBtn.className = "latex-ext-btn";
+    bulkBtn.dataset.latexExt = "bulk";
+    bulkBtn.title = "Encode or restore all visible messages";
+    bulkBtn.setAttribute("aria-label", "Encode or restore all messages");
+    bulkBtn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      handleMessageToggle();
+      handleBulkToggle();
     });
-    panel.appendChild(msgBtn);
+    panel.appendChild(bulkBtn);
 
     refreshPanelLabels(panel);
 
@@ -1400,6 +1483,101 @@
   function scan() {
     Core.injectStyles(Core.BUTTON_CSS);
     document.querySelectorAll(EDITOR_SEL).forEach(ensurePanel);
+    ensureEditEditors();
+    refreshAllPanels();
+  }
+
+  function isEditEditor(el) {
+    if (!el || el.nodeType !== 1) return false;
+    if (el.closest('[class*="channelTextArea"]')) return false;
+    if (el.closest('[class*="editing"]')) return true;
+    return false;
+  }
+
+  function ensureEditEditors() {
+    const sel =
+      'textarea, [contenteditable="true"][role="textbox"], [data-slate-editor="true"]';
+    document.querySelectorAll(sel).forEach((ed) => {
+      if (!isEditEditor(ed)) return;
+
+      const li = ed.closest('[id^="chat-messages-"]');
+      const mst =
+        li && window.__latexExtMsgState ? window.__latexExtMsgState(li) : null;
+      let mode = "disabled";
+      if (mst && mst.displayMode === "latex") mode = "latex";
+      else if (mst && mst.displayMode === "latin") mode = "latin";
+
+      const read = () =>
+        ed.tagName === "TEXTAREA" ? ed.value : getComposerTextStrict(ed);
+      const write = (v) => {
+        if (ed.tagName === "TEXTAREA") ed.value = v;
+        else setComposerText(ed, v);
+      };
+
+      if (ed._latexExtEditBound) {
+        const st = states.get(ed);
+        if (!st) return;
+        const wasMode = st.mode;
+        st.mode = mode;
+        if (mode !== "disabled" && wasMode === "disabled") {
+          st.original = read();
+          const display = displayFor(st);
+          if (display !== st.original) write(display);
+        }
+        return;
+      }
+
+      ed._latexExtEditBound = true;
+      const state = {
+        mode,
+        original: read(),
+        applying: false,
+        sending: false,
+        pendingSend: false,
+        pasteRaw: null
+      };
+      states.set(ed, state);
+      if (mode !== "disabled") {
+        const display = displayFor(state);
+        if (display !== state.original) write(display);
+      }
+
+      if (!ed._latexExtBound) {
+        ed._latexExtBound = true;
+        if (ed.tagName !== "TEXTAREA") {
+          ed.addEventListener("input", () => {
+            const st = states.get(ed);
+            if (st) onEditorInput(ed, st);
+          });
+        } else {
+          ed.addEventListener("input", () => {
+            const st = states.get(ed);
+            if (!st || st.applying || st.mode === "disabled") return;
+            if (!Core.settings.live) {
+              st.original = ed.value;
+              return;
+            }
+            const expected = displayFor(st);
+            const current = ed.value;
+            if (current === expected) return;
+            const diff = computeDiff(expected, current);
+            if (!diff) return;
+            applyDiffToOriginal(st, diff);
+            if (diff.kind === "delete") return;
+            const next = displayFor(st);
+            if (next !== current) {
+              st.applying = true;
+              const pos = ed.selectionStart;
+              ed.value = next;
+              try {
+                ed.setSelectionRange(pos, pos);
+              } catch (_) {}
+              st.applying = false;
+            }
+          });
+        }
+      }
+    });
   }
 
   let scheduled = false;
@@ -1464,6 +1642,8 @@
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
   const states = new Map();
   let lastMessageFlag = !!Core.settings.message;
+
+  window.__latexExtMsgState = stateFor;
 
   function stateFor(li) {
     return states.get(li.id);
@@ -1579,7 +1759,8 @@
       baseSaved: null,
       manual: false,
       origDetect: null,
-      displayMode: null
+      displayMode: null,
+      peeking: false
     };
   }
 
@@ -1670,6 +1851,8 @@
     setStateFor(li, state);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
+    Core.bumpMessages(1);
+    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
     return state;
   }
 
@@ -1704,7 +1887,7 @@
 
   function reconcile(li) {
     const state = stateFor(li);
-    if (!state || !state.applied) return;
+    if (!state || !state.applied || state.peeking) return;
     const nodes = collectTextNodes(collectTranslatableRoots(li));
     if (nodesMatch(nodes, state.applied)) return;
     if (state.baseSaved && nodesMatch(nodes, state.baseSaved)) {
@@ -1719,6 +1902,102 @@
     }
     setStateFor(li, newState());
     ensureBadge(li, null);
+  }
+
+  function showBase(li) {
+    const state = stateFor(li);
+    if (!state || !state.applied || !state.baseSaved) return false;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    if (nodes.length !== state.baseSaved.length) return false;
+    nodes.forEach((n, i) => {
+      n.nodeValue = state.baseSaved[i];
+    });
+    state.peeking = true;
+    ensureBadge(li, null);
+    return true;
+  }
+
+  function reapply(li) {
+    const state = stateFor(li);
+    if (!state || !state.applied || !state.peeking) return;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    if (nodes.length !== state.applied.length) return;
+    nodes.forEach((n, i) => {
+      n.nodeValue = state.applied[i];
+    });
+    state.peeking = false;
+    ensureBadge(li, state.origDetect);
+  }
+
+  function anyApplied() {
+    let found = false;
+    document.querySelectorAll(MSG_SEL).forEach((li) => {
+      if (found) return;
+      const st = stateFor(li);
+      if (st && (st.applied || st.saved) && !st.peeking) found = true;
+    });
+    return found;
+  }
+
+  function encodeAll() {
+    document.querySelectorAll(MSG_SEL).forEach((li) => {
+      ensureButton(li);
+      if (isShowingApplied(li)) return;
+      const raw = combinedText(li);
+      if (!raw.trim()) return;
+      const d = Core.detect(raw);
+      if (d === "latin") return;
+      applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", d);
+      const st = ensureState(li);
+      st.manual = true;
+      setStateFor(li, st);
+    });
+    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
+  }
+
+  function restoreAll() {
+    document.querySelectorAll(MSG_SEL).forEach((li) => {
+      const st = stateFor(li);
+      if (!st || (!st.applied && !st.saved)) return;
+      restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
+      const s = ensureState(li);
+      s.manual = true;
+      setStateFor(li, s);
+    });
+    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
+  }
+
+  window.__latexExtBulk = { anyApplied, encodeAll, restoreAll };
+
+  function attachPeek(btn, li) {
+    if (btn._latexExtPeekBound) return;
+    btn._latexExtPeekBound = true;
+    let peekStart = 0;
+    let suppressClick = false;
+    btn.addEventListener("pointerdown", () => {
+      const st = stateFor(li);
+      if (st && st.applied && !st.peeking) {
+        peekStart = Date.now();
+        showBase(li);
+      }
+    });
+    const endPeek = () => {
+      const st = stateFor(li);
+      if (!st || !st.peeking) return;
+      const held = Date.now() - peekStart;
+      reapply(li);
+      if (held >= 250) suppressClick = true;
+      peekStart = 0;
+    };
+    btn.addEventListener("pointerup", endPeek);
+    btn.addEventListener("pointerleave", endPeek);
+    btn.addEventListener("click", (e) => {
+      if (suppressClick) {
+        suppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
   }
 
   function handleToggle(li, btn) {
@@ -1828,6 +2107,7 @@
       e.stopPropagation();
       handleToggle(li, btn);
     });
+    attachPeek(btn, li);
     panel.appendChild(btn);
 
     sep = document.createElement("div");
@@ -1907,6 +2187,7 @@
     subtree: true
   });
   window.__latexExtMessagesScan = scan;
+  if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
 })();
 
 })();

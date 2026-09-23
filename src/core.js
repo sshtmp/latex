@@ -132,13 +132,41 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.2.1";
+const VERSION = "1.3.0";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
+    auto: "out",
     live: true,
     message: false
   };
+
+  const stats = {
+    messages: 0
+  };
+
+  function setAuto(mode) {
+    if (mode !== "off" && mode !== "out" && mode !== "both") return;
+    settings.auto = mode;
+    settings.live = mode !== "off";
+    settings.message = mode === "both";
+  }
+
+  function cycleAuto(mode) {
+    if (mode === "off") return "out";
+    if (mode === "out") return "both";
+    return "off";
+  }
+
+  function autoLabel(mode) {
+    if (mode === "both") return "Auto both";
+    if (mode === "out") return "Auto out";
+    return "Auto off";
+  }
+
+  function bumpMessages(n) {
+    stats.messages += n == null ? 1 : n;
+  }
 
   function loadSettings() {
     try {
@@ -148,8 +176,15 @@
       if (!raw) return;
       const o = JSON.parse(raw);
       if (o && typeof o === "object") {
-        if (typeof o.live === "boolean") settings.live = o.live;
-        if (typeof o.message === "boolean") settings.message = o.message;
+        if (o.auto === "off" || o.auto === "out" || o.auto === "both") {
+          setAuto(o.auto);
+          return;
+        }
+        const live = typeof o.live === "boolean" ? o.live : true;
+        const message = typeof o.message === "boolean" ? o.message : false;
+        if (message) setAuto("both");
+        else if (live) setAuto("out");
+        else setAuto("off");
       }
     } catch (_) {}
   }
@@ -160,7 +195,11 @@
       if (!ls) return;
       ls.setItem(
         STORAGE_KEY,
-        JSON.stringify({ live: settings.live, message: settings.message })
+        JSON.stringify({
+          auto: settings.auto,
+          live: settings.live,
+          message: settings.message
+        })
       );
     } catch (_) {}
   }
@@ -380,6 +419,11 @@
     notifySettings,
     loadSettings,
     saveSettings,
+    setAuto,
+    cycleAuto,
+    autoLabel,
+    bumpMessages,
+    stats,
     settings,
     BUTTON_CSS
   };

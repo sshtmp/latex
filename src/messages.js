@@ -14,6 +14,8 @@
   const states = new Map();
   let lastMessageFlag = !!Core.settings.message;
 
+  window.__latexExtMsgState = stateFor;
+
   function stateFor(li) {
     return states.get(li.id);
   }
@@ -128,7 +130,8 @@
       baseSaved: null,
       manual: false,
       origDetect: null,
-      displayMode: null
+      displayMode: null,
+      peeking: false
     };
   }
 
@@ -219,6 +222,8 @@
     setStateFor(li, state);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
+    Core.bumpMessages(1);
+    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
     return state;
   }
 
@@ -253,7 +258,7 @@
 
   function reconcile(li) {
     const state = stateFor(li);
-    if (!state || !state.applied) return;
+    if (!state || !state.applied || state.peeking) return;
     const nodes = collectTextNodes(collectTranslatableRoots(li));
     if (nodesMatch(nodes, state.applied)) return;
     if (state.baseSaved && nodesMatch(nodes, state.baseSaved)) {
@@ -268,6 +273,102 @@
     }
     setStateFor(li, newState());
     ensureBadge(li, null);
+  }
+
+  function showBase(li) {
+    const state = stateFor(li);
+    if (!state || !state.applied || !state.baseSaved) return false;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    if (nodes.length !== state.baseSaved.length) return false;
+    nodes.forEach((n, i) => {
+      n.nodeValue = state.baseSaved[i];
+    });
+    state.peeking = true;
+    ensureBadge(li, null);
+    return true;
+  }
+
+  function reapply(li) {
+    const state = stateFor(li);
+    if (!state || !state.applied || !state.peeking) return;
+    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    if (nodes.length !== state.applied.length) return;
+    nodes.forEach((n, i) => {
+      n.nodeValue = state.applied[i];
+    });
+    state.peeking = false;
+    ensureBadge(li, state.origDetect);
+  }
+
+  function anyApplied() {
+    let found = false;
+    document.querySelectorAll(MSG_SEL).forEach((li) => {
+      if (found) return;
+      const st = stateFor(li);
+      if (st && (st.applied || st.saved) && !st.peeking) found = true;
+    });
+    return found;
+  }
+
+  function encodeAll() {
+    document.querySelectorAll(MSG_SEL).forEach((li) => {
+      ensureButton(li);
+      if (isShowingApplied(li)) return;
+      const raw = combinedText(li);
+      if (!raw.trim()) return;
+      const d = Core.detect(raw);
+      if (d === "latin") return;
+      applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", d);
+      const st = ensureState(li);
+      st.manual = true;
+      setStateFor(li, st);
+    });
+    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
+  }
+
+  function restoreAll() {
+    document.querySelectorAll(MSG_SEL).forEach((li) => {
+      const st = stateFor(li);
+      if (!st || (!st.applied && !st.saved)) return;
+      restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
+      const s = ensureState(li);
+      s.manual = true;
+      setStateFor(li, s);
+    });
+    if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
+  }
+
+  window.__latexExtBulk = { anyApplied, encodeAll, restoreAll };
+
+  function attachPeek(btn, li) {
+    if (btn._latexExtPeekBound) return;
+    btn._latexExtPeekBound = true;
+    let peekStart = 0;
+    let suppressClick = false;
+    btn.addEventListener("pointerdown", () => {
+      const st = stateFor(li);
+      if (st && st.applied && !st.peeking) {
+        peekStart = Date.now();
+        showBase(li);
+      }
+    });
+    const endPeek = () => {
+      const st = stateFor(li);
+      if (!st || !st.peeking) return;
+      const held = Date.now() - peekStart;
+      reapply(li);
+      if (held >= 250) suppressClick = true;
+      peekStart = 0;
+    };
+    btn.addEventListener("pointerup", endPeek);
+    btn.addEventListener("pointerleave", endPeek);
+    btn.addEventListener("click", (e) => {
+      if (suppressClick) {
+        suppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    }, true);
   }
 
   function handleToggle(li, btn) {
@@ -377,6 +478,7 @@
       e.stopPropagation();
       handleToggle(li, btn);
     });
+    attachPeek(btn, li);
     panel.appendChild(btn);
 
     sep = document.createElement("div");
@@ -456,4 +558,5 @@
     subtree: true
   });
   window.__latexExtMessagesScan = scan;
+  if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
 })();

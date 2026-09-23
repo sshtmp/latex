@@ -221,7 +221,7 @@ assert(
   { w: C.detect("w Φ∩"), hola: C.detect("hola Φ∩") }
 );
 
-assert("version 1.2.1", C.VERSION === "1.2.1", C.VERSION);
+assert("version 1.3.0", C.VERSION === "1.3.0", C.VERSION);
 
 assert(
   "markdown link text encoded url kept",
@@ -233,8 +233,10 @@ assert(
 );
 
 assert(
-  "settings default live on message off",
-  C.settings.live === true && C.settings.message === false,
+  "settings default auto out",
+  C.settings.auto === "out" &&
+    C.settings.live === true &&
+    C.settings.message === false,
   C.settings
 );
 
@@ -243,10 +245,35 @@ assert("first child panel", cbtn.parentElement.firstElementChild === cbtn.parent
 assert("panel title", cbtn.parentElement.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, cbtn.parentElement.querySelector(".latex-ext-title")?.textContent);
 assert("encoding label disabled", cbtn.textContent === "Encoding disabled", cbtn.textContent);
 
-const liveBtn = cbtn.parentElement.querySelector('[data-latex-ext="live"]');
-const msgBtn = cbtn.parentElement.querySelector('[data-latex-ext="msgauto"]');
-assert("live default on", liveBtn && liveBtn.textContent === "Live encoding enabled", liveBtn?.textContent);
-assert("msg default off", msgBtn && msgBtn.textContent === "Message encoding disabled", msgBtn?.textContent);
+const autoBtn = cbtn.parentElement.querySelector('[data-latex-ext="auto"]');
+const bulkBtn = cbtn.parentElement.querySelector('[data-latex-ext="bulk"]');
+assert("auto default out", autoBtn && autoBtn.textContent === "Auto out", autoBtn?.textContent);
+assert("bulk default encode all", bulkBtn && bulkBtn.textContent === "Encode all", bulkBtn?.textContent);
+
+const AUTO_LABELS = { off: "Auto off", out: "Auto out", both: "Auto both" };
+function setAuto(mode) {
+  let guard = 0;
+  while (autoBtn.textContent !== AUTO_LABELS[mode] && guard++ < 6) autoBtn.click();
+}
+const liveBtn = {
+  click() {
+    setAuto(C.settings.live ? "off" : "out");
+  },
+  get textContent() {
+    return C.settings.live ? "Live encoding enabled" : "Live encoding disabled";
+  }
+};
+const msgBtn = {
+  click() {
+    if (C.settings.message) setAuto(C.settings.live ? "out" : "off");
+    else setAuto("both");
+  },
+  get textContent() {
+    return C.settings.message
+      ? "Message encoding enabled"
+      : "Message encoding disabled";
+  }
+};
 
 const probe = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 probe.inputType = "insertText";
@@ -1059,8 +1086,10 @@ await wait(50);
 const liEdit = document.getElementById("chat-messages-111");
 const contentEdit = document.getElementById("message-content-111");
 const mbtnEdit = liEdit.querySelector('[data-latex-ext="msg"]');
-mbtnEdit.click();
-await wait(10);
+if (!contentEdit.querySelector('[data-latex-ext="badge"]')) {
+  mbtnEdit.click();
+  await wait(10);
+}
 assert(
   "edit-resync setup transformed",
   !!contentEdit.querySelector('[data-latex-ext="badge"]'),
@@ -1128,6 +1157,140 @@ assert(
 );
 ed.dispatchEvent(new window.Event("compositionend", { bubbles: true }));
 await wait(10);
+
+setAuto("out");
+assert("auto cycle to out", autoBtn.textContent === "Auto out", autoBtn.textContent);
+autoBtn.click();
+assert("auto cycle to both", autoBtn.textContent === "Auto both", autoBtn.textContent);
+assert(
+  "auto both sets message on",
+  C.settings.auto === "both" && C.settings.live && C.settings.message,
+  C.settings
+);
+autoBtn.click();
+assert("auto cycle to off", autoBtn.textContent === "Auto off", autoBtn.textContent);
+assert(
+  "auto off clears live and message",
+  C.settings.auto === "off" && !C.settings.live && !C.settings.message,
+  C.settings
+);
+autoBtn.click();
+assert("auto cycle wraps to out", autoBtn.textContent === "Auto out", autoBtn.textContent);
+
+setAuto("out");
+while (cbtn.dataset.mode !== "disabled") cbtn.click();
+const modeBeforeKb = cbtn.dataset.mode;
+ed.dispatchEvent(
+  new window.KeyboardEvent("keydown", {
+    key: "L",
+    ctrlKey: true,
+    shiftKey: true,
+    bubbles: true,
+    cancelable: true
+  })
+);
+assert(
+  "ctrl+shift+L cycles encoding",
+  cbtn.dataset.mode !== modeBeforeKb || modeBeforeKb === "disabled",
+  { before: modeBeforeKb, after: cbtn.dataset.mode }
+);
+while (cbtn.dataset.mode !== "disabled") cbtn.click();
+
+setAuto("both");
+await wait(60);
+if (bulkBtn.textContent === "Restore all") {
+  bulkBtn.click();
+  await wait(30);
+}
+assert(
+  "bulk starts encode all",
+  bulkBtn.textContent === "Encode all" && !window.__latexExtBulk.anyApplied(),
+  { btn: bulkBtn.textContent, applied: window.__latexExtBulk.anyApplied() }
+);
+bulkBtn.click();
+await wait(30);
+assert(
+  "bulk encode all applies",
+  !!window.__latexExtBulk && window.__latexExtBulk.anyApplied(),
+  window.__latexExtBulk && window.__latexExtBulk.anyApplied()
+);
+assert(
+  "bulk button becomes restore all",
+  bulkBtn.textContent === "Restore all",
+  bulkBtn.textContent
+);
+bulkBtn.click();
+await wait(30);
+assert(
+  "bulk restore all clears",
+  !window.__latexExtBulk.anyApplied(),
+  window.__latexExtBulk.anyApplied()
+);
+assert(
+  "bulk button back to encode all",
+  bulkBtn.textContent === "Encode all",
+  bulkBtn.textContent
+);
+
+const titleEl = cbtn.parentElement.querySelector(".latex-ext-title");
+assert(
+  "stats shown in title after transforms",
+  C.stats.messages > 0 && titleEl.textContent.includes("·"),
+  { stats: C.stats.messages, title: titleEl.textContent }
+);
+
+setAuto("both");
+await wait(50);
+const liPeek = document.getElementById("chat-messages-333");
+const contentPeek = document.getElementById("message-content-333");
+const peekBtn = liPeek.querySelector('[data-latex-ext="msg"]');
+if (!contentPeek.querySelector('[data-latex-ext="badge"]') && peekBtn) {
+  peekBtn.click();
+  await wait(10);
+}
+const peekOrig = contentPeek.textContent;
+assert("peek setup has applied", !!contentPeek.querySelector('[data-latex-ext="badge"]'), contentPeek.innerHTML);
+if (peekBtn) {
+  peekBtn.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+  await wait(10);
+  assert(
+    "peek shows original while held",
+    !contentPeek.querySelector('[data-latex-ext="badge"]') &&
+      contentPeek.textContent.includes("Φ∩"),
+    contentPeek.textContent
+  );
+  await wait(300);
+  peekBtn.dispatchEvent(new window.Event("pointerup", { bubbles: true }));
+  await wait(10);
+  assert(
+    "peek restores after hold",
+    !!contentPeek.querySelector('[data-latex-ext="badge"]') &&
+      contentPeek.textContent === peekOrig,
+    { badge: !!contentPeek.querySelector('[data-latex-ext="badge"]'), text: contentPeek.textContent }
+  );
+  const clickEv = new window.Event("click", { bubbles: true, cancelable: true });
+  peekBtn.dispatchEvent(clickEv);
+  await wait(10);
+  assert(
+    "click after long peek suppressed",
+    !!contentPeek.querySelector('[data-latex-ext="badge"]'),
+    contentPeek.innerHTML
+  );
+}
+
+const editTa = document.getElementById("edit-ta");
+if (editTa) {
+  if (window.__latexExtComposerScan) window.__latexExtComposerScan();
+  await wait(30);
+  assert(
+    "edit textarea picked up",
+    editTa._latexExtEditBound === true,
+    editTa._latexExtEditBound
+  );
+}
+
+setAuto("out");
+msgBtn.click && setAuto("out");
 
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
