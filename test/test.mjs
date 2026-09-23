@@ -859,6 +859,64 @@ liveBtn.click();
 cbtn.click();
 cbtn.click();
 
+await wait(50);
+assert(
+  "no panel in search editor",
+  !document.getElementById("search-editor")?.closest('[class*="searchBar"]')?.querySelector('[data-latex-ext="panel"]'),
+  document.querySelector("#search-editor ~ [data-latex-ext='panel'], #search-editor [data-latex-ext='panel']")?.outerHTML
+);
+assert(
+  "no panel in modal editor",
+  !document.getElementById("modal-editor")?.parentElement?.querySelector('[data-latex-ext="panel"]') &&
+    !document.getElementById("modal-editor")?.querySelector('[data-latex-ext="panel"]'),
+  null
+);
+assert(
+  "search editor has no composer button ancestor outside channelTextArea",
+  !document.getElementById("search-editor")?.closest('[data-latex-ext="panel"]'),
+  null
+);
+
+const li777 = document.getElementById("chat-messages-777");
+await wait(50);
+if (msgBtn.textContent === "Message encoding enabled") {
+  msgBtn.click();
+  await wait(50);
+}
+const quotedContent = document.getElementById("message-content-999");
+const replyContent = document.getElementById("message-content-777");
+const replyBtn = li777.querySelector('[data-latex-ext="msg"]');
+assert("reply msg btn exists", !!replyBtn, null);
+assert(
+  "quoted content not selected as badge host initially",
+  !quotedContent.querySelector('[data-latex-ext="badge"]'),
+  quotedContent.innerHTML
+);
+assert(
+  "reply content has no badge before toggle",
+  !replyContent.querySelector('[data-latex-ext="badge"]'),
+  replyContent.innerHTML
+);
+
+if (replyBtn) {
+  replyBtn.click();
+  await wait(10);
+  const badgeInReply = replyContent.querySelector('[data-latex-ext="badge"]');
+  const badgeInQuoted = quotedContent.querySelector('[data-latex-ext="badge"]');
+  assert("badge in reply content", !!badgeInReply, replyContent.innerHTML);
+  assert("badge not in quoted content", !badgeInQuoted, quotedContent.innerHTML);
+  assert(
+    "quoted text not translated by reply toggle",
+    quotedContent.textContent === "quoted original text",
+    quotedContent.textContent
+  );
+  assert(
+    "reply body transformed",
+    replyContent.textContent.includes("sie") || replyContent.textContent.includes("Φ∩"),
+    replyContent.textContent
+  );
+}
+
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
 process.exit(fails.length ? 1 : 0);

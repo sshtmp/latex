@@ -123,7 +123,7 @@
     return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
   }
 
-  const VERSION = "1.1.1";
+  const VERSION = "1.1.2";
 
   const settings = {
     live: true,

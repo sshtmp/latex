@@ -9,7 +9,13 @@
 
   const MSG_SEL = '[id^="chat-messages-"]';
   const CONTENT_SEL = '[id^="message-content-"]';
+  const REPLY_SEL =
+    '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
   const states = new WeakMap();
+
+  function isReplyPreview(el) {
+    return !!(el instanceof Element && el.closest(REPLY_SEL));
+  }
 
   function findActionContainer(li) {
     return (
@@ -32,16 +38,29 @@
       roots.push(el);
     };
 
-    li.querySelectorAll(CONTENT_SEL).forEach(add);
-    li.querySelectorAll('[class*="embedFull"]').forEach(add);
+    li.querySelectorAll(CONTENT_SEL).forEach((el) => {
+      if (isReplyPreview(el)) return;
+      add(el);
+    });
+    li.querySelectorAll('[class*="embedFull"]').forEach((el) => {
+      if (isReplyPreview(el)) return;
+      add(el);
+    });
     li.querySelectorAll('[class*="components"]').forEach((el) => {
       if (actions && actions.contains(el)) return;
+      if (isReplyPreview(el)) return;
       add(el);
     });
 
     if (roots.length === 0) {
       const fallback = li.querySelector('[class*="message"]');
-      if (fallback && !(actions && actions.contains(fallback))) add(fallback);
+      if (
+        fallback &&
+        !isReplyPreview(fallback) &&
+        !(actions && actions.contains(fallback))
+      ) {
+        add(fallback);
+      }
     }
     return roots;
   }
@@ -115,7 +134,11 @@
   }
 
   function badgeHost(li) {
-    const content = li.querySelector(CONTENT_SEL);
+    let content = null;
+    li.querySelectorAll(CONTENT_SEL).forEach((el) => {
+      if (content || isReplyPreview(el)) return;
+      content = el;
+    });
     if (content) return content.querySelector(".markup") || content;
     const roots = collectTranslatableRoots(li);
     return roots[0] || null;

@@ -14,20 +14,13 @@
   let bound = false;
 
   function isComposerEditor(editor) {
-    if (editor.closest('[class*="channelTextArea"]')) return true;
-    const row = editor.closest("form") || editor.parentElement;
-    return !!(row && row.querySelector('[class*="buttons"], [class*="Buttons"]'));
+    return !!editor.closest('[class*="channelTextArea"]');
   }
 
   function findButtons(editor) {
-    const scope =
-      editor.closest('[class*="channelTextArea"]') ||
-      editor.parentElement;
+    const scope = editor.closest('[class*="channelTextArea"]');
     if (!scope) return null;
-    return (
-      scope.querySelector('[class*="buttons"], [class*="Buttons"]') ||
-      editor.parentElement
-    );
+    return scope.querySelector('[class*="buttons"], [class*="Buttons"]');
   }
 
   function editorFromTarget(target) {
