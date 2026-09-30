@@ -109,21 +109,35 @@ document.execCommand = (cmd, _ui, value) => {
   return true;
 };
 
-const load = (f) => {
-  const code = readFileSync(path.join(dir, "..", "src", f), "utf8");
-  new Function(code).call(window);
-};
-
-load("core.js");
-load("composer.js");
-load("messages.js");
-
 const results = {};
 const assert = (name, cond, detail) => {
   results[name] = cond ? "PASS" : "FAIL: " + JSON.stringify(detail);
 };
+
+// Start from a clean slate so the default settings are deterministic.
+window.localStorage.clear();
+assert("localStorage starts empty", window.localStorage.length === 0, window.localStorage.length);
+
+const readSource = (f) => readFileSync(path.join(dir, "..", "src", f), "utf8");
+const load = (f) => {
+  new Function(readSource(f)).call(window);
+};
+
+const coreSource = readSource("core.js");
+load("core.js");
+load("composer.js");
+load("messages.js");
+
+const C = window.LatexCore;
+const STORAGE_KEY = "latex-ext-settings";
 const ed = document.getElementById("editor");
-const cbtn = document.querySelector('[data-latex-ext="composer"]');
+const emptyEditor = document.getElementById("editor-empty");
+const searchEditor = document.getElementById("search-editor");
+const modalEditor = document.getElementById("modal-editor");
+const composerScope = document.querySelector(".channelTextArea__abc");
+const cbtn = composerScope.querySelector('[data-latex-ext="composer"]');
+const dbtn = composerScope.querySelector('[data-latex-ext="decode"]');
+const composerPanel = cbtn.parentElement;
 const readEd = () => computeInnerText(ed).replace(/\n$/, "");
 
 function simulateUserType(el, ch) {
@@ -142,7 +156,90 @@ function typeStr(el, s) {
   for (const ch of s) simulateUserType(el, ch);
 }
 
-const C = window.LatexCore;
+function firePaste(el, text) {
+  const ev = new window.Event("paste", { bubbles: true, cancelable: true });
+  const store = { "text/plain": text };
+  ev.clipboardData = {
+    getData(type) { return store[type] || ""; },
+    setData(type, v) { store[type] = v; },
+    types: ["text/plain"]
+  };
+  el.dispatchEvent(ev);
+  return store;
+}
+
+const key = (k, init) => new window.KeyboardEvent("keydown", {
+  key: k, bubbles: true, cancelable: true, ...init
+});
+const pointer = (type) => new window.Event(type, { bubbles: true, cancelable: true });
+const mouse = (type) => new window.MouseEvent(type, { bubbles: true, cancelable: true });
+
+const setEncode = (want) => {
+  if (C.settings.encode !== want) cbtn.click();
+};
+const setDecode = async (want) => {
+  if (C.settings.decode !== want) {
+    dbtn.click();
+    await wait(10);
+  }
+};
+
+// Text nodes that live directly under a slate editor (i.e. orphans that
+// Discord can leave behind when it clears the composer after a send).
+function strayRootText(el) {
+  return [...el.childNodes]
+    .filter((n) => n.nodeType === 3 && (n.nodeValue || "").replace(/﻿/g, ""))
+    .map((n) => n.nodeValue);
+}
+
+let fxSeq = 0;
+function addComposerChannel(inner) {
+  const el = document.createElement("div");
+  el.className = "channelTextArea__fx" + fxSeq++;
+  el.innerHTML = inner;
+  document.body.appendChild(el);
+  return el;
+}
+
+let msgSeq = 0;
+function addMessage(markupInner) {
+  const id = "chat-messages-t" + msgSeq++;
+  const li = document.createElement("li");
+  li.id = id;
+  li.innerHTML =
+    '<div id="message-content-' + id + '"><div class="markup">' + markupInner + "</div></div>" +
+    '<div class="buttonContainer_c19a55"><div class="buttons__5126c" role="group" aria-label="Message Actions">' +
+    '<div class="buttonsInner__5126c popover_f84418">' +
+    '<div class="hoverBarButton" aria-label="AddReaction">+</div>' +
+    "</div></div></div>";
+  document.querySelector("ul").appendChild(li);
+  return li;
+}
+const REPLY_SEL =
+  '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
+const msgContent = (li) =>
+  [...li.querySelectorAll('[id^="message-content-"]')].find(
+    (el) => !el.closest(REPLY_SEL)
+  ) || li.querySelector('[id^="message-content-"]');
+const msgBtn = (li) => li.querySelector('[data-latex-ext="msg"]');
+const msgBadge = (li) => msgContent(li).querySelector('[data-latex-ext="badge"]');
+// Visible text of a message root with the injected badge excluded.
+const extFreeText = (root) => {
+  const clone = root.cloneNode(true);
+  clone.querySelectorAll("[data-latex-ext]").forEach((n) => n.remove());
+  return clone.textContent;
+};
+const msgText = (li) => extFreeText(msgContent(li).querySelector(".markup") || msgContent(li));
+const scanMessages = () => {
+  if (window.__latexExtMessagesScan) window.__latexExtMessagesScan();
+};
+const scanComposer = () => {
+  if (window.__latexExtComposerScan) window.__latexExtComposerScan();
+};
+
+/* ================================================================== *
+ * 1. Core: encoding / decoding / detection (unchanged by the refactor)
+ * ================================================================== */
 assert(
   "core example",
   C.encodeToLatex("si estas leyendo esto correctamente, lo has traducido te puta madre") ===
@@ -204,7 +301,11 @@ assert(
   C.encodeToLatex("[hi](https://example.com/a)").includes("(https://example.com/a)"),
   C.encodeToLatex("[hi](https://example.com/a)")
 );
-
+assert(
+  "markdown link text encoded url kept",
+  C.encodeToLatex("[hi](https://example.com/a)").includes("[µ∩]"),
+  C.encodeToLatex("[hi](https://example.com/a)")
+);
 assert(
   "detect encoded w is latex",
   C.detect(C.encodeToLatex("hello world")) === "latex",
@@ -217,1084 +318,958 @@ assert(
 );
 assert(
   "detect mixed still works",
-  C.detect("w Φ∩") === "mixed" || C.detect("hola Φ∩") === "mixed",
-  { w: C.detect("w Φ∩"), hola: C.detect("hola Φ∩") }
+  C.detect("hola Φ∩") === "mixed",
+  C.detect("hola Φ∩")
 );
-
-assert("version 1.4.0", C.VERSION === "1.4.0", C.VERSION);
-
 assert(
-  "markdown link text encoded url kept",
-  (() => {
-    const r = C.encodeToLatex("[hi](https://example.com/a)");
-    return r.includes("(https://example.com/a)") && r.includes("[µ∩]");
-  })(),
-  C.encodeToLatex("[hi](https://example.com/a)")
+  "detect pure latex",
+  C.detect("Φ∩ εΦ╪σΦ") === "latex",
+  C.detect("Φ∩ εΦ╪σΦ")
 );
-
 assert(
-  "settings default auto out",
-  C.settings.auto === "out" &&
-    C.settings.live === true &&
-    C.settings.message === false,
+  "detect pure latin",
+  C.detect("hello world") === "latin",
+  C.detect("hello world")
+);
+assert("version is 1.5.0", C.VERSION === "1.5.0", C.VERSION);
+
+/* ================================================================== *
+ * 2. Settings model
+ * ================================================================== */
+assert(
+  "default settings are encode:false decode:true",
+  C.settings.encode === false && C.settings.decode === true,
+  C.settings
+);
+assert(
+  "default settings object has only encode and decode keys",
+  Object.keys(C.settings).sort().join(",") === "decode,encode",
+  Object.keys(C.settings)
+);
+assert(
+  "no live-translation settings remain (auto/live/message)",
+  C.settings.auto === undefined &&
+    C.settings.live === undefined &&
+    C.settings.message === undefined,
   C.settings
 );
 
-assert("default Disabled", cbtn.dataset.mode === "disabled", cbtn.textContent);
-assert("first child panel", cbtn.parentElement.firstElementChild === cbtn.parentElement.querySelector(".latex-ext-title"), null);
-assert("panel title", cbtn.parentElement.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, cbtn.parentElement.querySelector(".latex-ext-title")?.textContent);
-assert("encoding label disabled", cbtn.textContent === "Encoding disabled", cbtn.textContent);
-
-const autoBtn = cbtn.parentElement.querySelector('[data-latex-ext="auto"]');
-const bulkBtn = cbtn.parentElement.querySelector('[data-latex-ext="bulk"]');
-assert("no bulk button", !bulkBtn, bulkBtn?.textContent);
+// A stored payload from the old (1.4.x) format must be ignored wholesale.
+window.localStorage.setItem(
+  STORAGE_KEY,
+  JSON.stringify({ auto: "both", live: true, message: true })
+);
+delete window.LatexCore;
+new Function(coreSource).call(window);
+const legacyCore = window.LatexCore;
 assert(
-  "auto default out label",
-  autoBtn && autoBtn.textContent === "Encode outgoing only",
-  autoBtn?.textContent
+  "legacy stored settings are ignored and defaults are used",
+  legacyCore.settings.encode === false &&
+    legacyCore.settings.decode === true &&
+    legacyCore.settings.auto === undefined &&
+    legacyCore.settings.live === undefined &&
+    legacyCore.settings.message === undefined,
+  legacyCore.settings
+);
+window.localStorage.removeItem(STORAGE_KEY);
+delete window.LatexCore;
+new Function(coreSource).call(window);
+// Restore the original singleton identity so the loaded composer/messages
+// modules keep talking to the same object.
+for (const k of Object.keys(C)) delete C[k];
+Object.assign(C, window.LatexCore);
+delete window.LatexCore;
+window.LatexCore = C;
+assert(
+  "core singleton identity restored after the legacy-payload probe",
+  window.LatexCore === C && C.VERSION === "1.5.0" && C.settings.encode === false,
+  { version: C.VERSION, settings: C.settings }
+);
+assert(
+  "legacy probe leaves localStorage without the settings key",
+  window.localStorage.getItem(STORAGE_KEY) === null,
+  window.localStorage.getItem(STORAGE_KEY)
 );
 
-const AUTO_LABELS = {
-  off: "No auto encoding",
-  in: "Decode incoming only",
-  out: "Encode outgoing only",
-  both: "Encode and decode"
-};
-function setAuto(mode) {
-  let guard = 0;
-  while (autoBtn.textContent !== AUTO_LABELS[mode] && guard++ < 8) autoBtn.click();
-}
-const liveBtn = {
-  click() {
-    setAuto(C.settings.live ? "off" : "out");
-  },
-  get textContent() {
-    return C.settings.live ? "Live encoding enabled" : "Live encoding disabled";
-  }
-};
-const msgBtn = {
-  click() {
-    if (C.settings.message) setAuto(C.settings.live ? "out" : "off");
-    else setAuto("both");
-  },
-  get textContent() {
-    return C.settings.message
-      ? "Message encoding enabled"
-      : "Message encoding disabled";
-  }
-};
+/* ================================================================== *
+ * 3. Composer panel structure
+ * ================================================================== */
+assert("composer panel exists inside channelTextArea", !!composerPanel, null);
+assert(
+  "composer panel children order is title, encode button, decode button",
+  composerPanel.children.length === 3 &&
+    composerPanel.children[0].classList.contains("latex-ext-title") &&
+    composerPanel.children[1] === cbtn &&
+    composerPanel.children[2] === dbtn,
+  [...composerPanel.children].map((c) => c.className + ":" + c.dataset.latexExt)
+);
+assert(
+  "composer panel title is the first child",
+  composerPanel.firstElementChild === composerPanel.querySelector(".latex-ext-title"),
+  composerPanel.firstElementChild && composerPanel.firstElementChild.className
+);
+assert(
+  "composer panel title text",
+  composerPanel.querySelector(".latex-ext-title").textContent.startsWith("LATEX v" + C.VERSION),
+  composerPanel.querySelector(".latex-ext-title").textContent
+);
+assert(
+  "encode button defaults to 'Encoding disabled'",
+  cbtn.textContent === "Encoding disabled" && cbtn.dataset.mode === "disabled",
+  { text: cbtn.textContent, mode: cbtn.dataset.mode }
+);
+assert(
+  "decode button defaults to 'Decoding enabled'",
+  dbtn.textContent === "Decoding enabled" && dbtn.dataset.mode === "enabled",
+  { text: dbtn.textContent, mode: dbtn.dataset.mode }
+);
+assert(
+  "no auto button in the panel (4-state cycle removed)",
+  !composerPanel.querySelector('[data-latex-ext="auto"]'),
+  null
+);
+assert(
+  "no bulk button in the panel (bulk encode/restore removed)",
+  !composerPanel.querySelector('[data-latex-ext="bulk"]'),
+  null
+);
+assert(
+  "no 'Encoding to Latin/Latex' label anywhere",
+  !document.body.textContent.includes("Encoding to "),
+  null
+);
+assert(
+  "no 'Live encoding' or 'Message encoding' label anywhere",
+  !document.body.textContent.includes("Live encoding") &&
+    !document.body.textContent.includes("Message encoding"),
+  null
+);
 
-const probe = new window.Event("beforeinput", { bubbles: true, cancelable: true });
-probe.inputType = "insertText";
-probe.data = "x";
-ed.dispatchEvent(probe);
-assert("window capture active (disabled: not prevented)", probe.defaultPrevented === false, probe.defaultPrevented);
-
-cbtn.click();
-assert("→ latin", readEd() === "Hola hola" && readEd().length > 0, readEd());
-assert("encoding label latin", cbtn.textContent === "Encoding to Latin", cbtn.textContent);
-cbtn.click();
-assert("→ latex", readEd() === "µ⌐Œσ µ⌐Œσ" && readEd().length > 0, readEd());
-assert("encoding label latex", cbtn.textContent === "Encoding to Latex", cbtn.textContent);
-cbtn.click();
-assert("→ disabled restores", readEd() === "Hola µ⌐Œσ", readEd());
-assert("encoding label disabled again", cbtn.textContent === "Encoding disabled", cbtn.textContent);
-cbtn.click();
-assert("→ latin again", readEd() === "Hola hola", readEd());
-
-const t1 = new window.Event("beforeinput", { bubbles: true, cancelable: true });
-t1.inputType = "insertText";
-t1.data = " ";
-ed.dispatchEvent(t1);
-assert("space not blocked", t1.defaultPrevented === false, t1.defaultPrevented);
-if (!t1.defaultPrevented) {
-  const ins = t1.data != null ? String(t1.data) : " ";
-  ed.textContent = (computeInnerText(ed) || "") + ins;
-  fireInput(ed);
-}
-assert("space inserted translated", readEd() === "Hola hola ", JSON.stringify(readEd()));
-
-const t2 = new window.Event("beforeinput", { bubbles: true, cancelable: true });
-t2.inputType = "insertText";
-t2.data = "β";
-ed.dispatchEvent(t2);
-assert("β not blocked", t2.defaultPrevented === false, t2.defaultPrevented);
-assert("β data mutated to m", t2.data === "m", t2.data);
-if (!t2.defaultPrevented) {
-  const ins = t2.data != null ? String(t2.data) : "β";
-  ed.textContent = (computeInnerText(ed) || "") + ins;
-  fireInput(ed);
-}
-assert("β→m live", readEd() === "Hola hola m", readEd());
-
-typeStr(ed, "ε⌐w");
-assert("latin meow", readEd() === "Hola hola meow", readEd());
-
-cbtn.click();
-assert("latex from original", readEd() === "µ⌐Œσ µ⌐Œσ βε⌐w", readEd());
-
-typeStr(ed, " meow");
-assert("latex live m→β", readEd() === "µ⌐Œσ µ⌐Œσ βε⌐w βε⌐w", readEd());
-
-cbtn.click();
-assert("disabled full original", readEd() === "Hola µ⌐Œσ βε⌐w meow", readEd());
-
-ed.textContent = "";
-fireInput(ed);
-assert("disabled clear no ghost", computeInnerText(ed) === "" && ed.textContent === "", {
-  inner: computeInnerText(ed),
-  text: ed.textContent,
-  html: ed.innerHTML
+/* ================================================================== *
+ * 4. Toggling settings from the panel
+ * ================================================================== */
+let settingsEvents = 0;
+window.addEventListener("latex-ext-settings-changed", () => {
+  settingsEvents++;
 });
 
-ed.textContent = "nuevo texto";
-fireInput(ed);
-assert("disabled retype", readEd() === "nuevo texto", readEd());
+cbtn.click();
+assert("encode button click toggles settings.encode to true", C.settings.encode === true, C.settings.encode);
+assert(
+  "encode button label flips to 'Encoding enabled'",
+  cbtn.textContent === "Encoding enabled" && cbtn.dataset.mode === "enabled",
+  { text: cbtn.textContent, mode: cbtn.dataset.mode }
+);
+assert("encode button click dispatches latex-ext-settings-changed", settingsEvents === 1, settingsEvents);
+assert(
+  "encode toggle refreshes every panel",
+  [...document.querySelectorAll('[data-latex-ext="composer"]')].every(
+    (b) => b.textContent === "Encoding enabled" && b.dataset.mode === "enabled"
+  ),
+  [...document.querySelectorAll('[data-latex-ext="composer"]')].map((b) => b.textContent)
+);
+assert(
+  "encode toggle persists {encode:true,decode:true}",
+  window.localStorage.getItem(STORAGE_KEY) === '{"encode":true,"decode":true}',
+  window.localStorage.getItem(STORAGE_KEY)
+);
+assert("encode toggle does not touch the editor text", readEd() === "Hola µ⌐Œσ", readEd());
 
 cbtn.click();
-assert("latin of nuevo", readEd() === "nuevo texto", readEd());
-cbtn.click();
-assert("latex of nuevo", readEd() !== "nuevo texto" && readEd().length > 0, readEd());
-cbtn.click();
-assert("disabled back", readEd() === "nuevo texto", readEd());
+assert("encode button click toggles settings.encode back to false", C.settings.encode === false, C.settings.encode);
+assert(
+  "encode button label returns to 'Encoding disabled'",
+  cbtn.textContent === "Encoding disabled" && cbtn.dataset.mode === "disabled",
+  { text: cbtn.textContent, mode: cbtn.dataset.mode }
+);
+assert(
+  "persisted settings only contain encode and decode keys",
+  (() => {
+    const parsed = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+    return Object.keys(parsed).sort().join(",") === "decode,encode";
+  })(),
+  window.localStorage.getItem(STORAGE_KEY)
+);
 
-ed.textContent = "Hola µ⌐Œσ";
+dbtn.click();
+await wait(10);
+assert("decode button click toggles settings.decode to false", C.settings.decode === false, C.settings.decode);
+assert(
+  "decode button label flips to 'Decoding disabled'",
+  dbtn.textContent === "Decoding disabled" && dbtn.dataset.mode === "disabled",
+  { text: dbtn.textContent, mode: dbtn.dataset.mode }
+);
+assert(
+  "decode toggle persists {encode:false,decode:false}",
+  window.localStorage.getItem(STORAGE_KEY) === '{"encode":false,"decode":false}',
+  window.localStorage.getItem(STORAGE_KEY)
+);
+assert("decode toggle dispatches settings-changed too", settingsEvents === 3, settingsEvents);
+dbtn.click();
+await wait(10);
+assert("decode button click toggles settings.decode back to true", C.settings.decode === true, C.settings.decode);
+assert(
+  "encode and decode toggles are independent",
+  C.settings.encode === false && C.settings.decode === true,
+  C.settings
+);
+
+const encodeBeforeHotkey = C.settings.encode;
+ed.dispatchEvent(key("L", { ctrlKey: true, shiftKey: true }));
+assert(
+  "ctrl+shift+L toggles encoding while a composer editor exists",
+  C.settings.encode === !encodeBeforeHotkey && cbtn.dataset.mode === "enabled",
+  { before: encodeBeforeHotkey, after: C.settings.encode, mode: cbtn.dataset.mode }
+);
+ed.dispatchEvent(key("L", { ctrlKey: true, metaKey: true }));
+assert(
+  "ctrl+meta+L without shift does not toggle encoding",
+  C.settings.encode === !encodeBeforeHotkey,
+  C.settings.encode
+);
+setEncode(false);
+assert("hotkey section ends with encoding disabled", C.settings.encode === false, C.settings.encode);
+
+/* ================================================================== *
+ * 5. No live translation: typing / paste / IME / undo never mutate text
+ * ================================================================== */
+setEncode(true);
+assert("no-live-translation setup has encoding enabled", C.settings.encode === true, C.settings.encode);
+
+ed.textContent = "";
+typeStr(ed, "Hola ñβε w :sob:");
+const typedLiteral = "Hola ñβε w :sob:";
+assert(
+  "typing while encoding is enabled leaves the DOM text byte-for-byte identical",
+  readEd() === typedLiteral,
+  { got: readEd(), want: typedLiteral }
+);
+
+const undoEv = new window.Event("beforeinput", { bubbles: true, cancelable: true });
+undoEv.inputType = "historyUndo";
+ed.dispatchEvent(undoEv);
+ed.textContent = typedLiteral;
 fireInput(ed);
-cbtn.click(); 
-assert("latin has text", readEd() === "Hola hola", readEd());
+assert(
+  "history undo is not intercepted and text is untouched",
+  !undoEv.defaultPrevented && readEd() === typedLiteral,
+  { prevented: undoEv.defaultPrevented, text: readEd() }
+);
+
+const redoEv = new window.Event("beforeinput", { bubbles: true, cancelable: true });
+redoEv.inputType = "historyRedo";
+ed.dispatchEvent(redoEv);
+assert(
+  "history redo is not intercepted and text is untouched",
+  !redoEv.defaultPrevented && readEd() === typedLiteral,
+  { prevented: redoEv.defaultPrevented, text: readEd() }
+);
 
 const delEv = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 delEv.inputType = "deleteContentBackward";
 ed.dispatchEvent(delEv);
-ed.textContent = "";
+ed.textContent = "Hola ñ";
 fireInput(ed);
-await wait(5);
-
-assert("delete-all display empty, not retranslated", readEd() === "", readEd());
-cbtn.click(); 
-assert("after delete latex stays empty", readEd() === "", readEd());
-cbtn.click(); 
-assert("after delete disabled stays empty", readEd() === "", readEd());
-
-ed.textContent = "meow\n:sob:";
-fireInput(ed);
-cbtn.click(); 
-assert("nl+sob latin", readEd() === "meow\n:sob:", JSON.stringify(readEd()));
-cbtn.click(); 
 assert(
-  "nl+sob latex no extra lines",
-  readEd() === "βε⌐w\n:sob:",
-  JSON.stringify(readEd())
-);
-assert("no BOM in html", !ed.innerHTML.includes("\uFEFF"), ed.innerHTML);
-cbtn.click(); 
-assert("nl+sob disabled restore", readEd() === "meow\n:sob:", JSON.stringify(readEd()));
-assert("no ghost after sob cycle", ed.textContent === "meow\n:sob:", {
-  text: ed.textContent,
-  html: ed.innerHTML,
-  childCount: ed.childNodes.length
-});
-
-ed.textContent = "Hola ";
-fireInput(ed);
-cbtn.click();
-cbtn.click();
-assert("paste setup latex", readEd() === "µ⌐Œσ ", readEd());
-
-function firePaste(el, text) {
-  const ev = new window.Event("paste", { bubbles: true, cancelable: true });
-  const store = { "text/plain": text };
-  ev.clipboardData = {
-    getData(type) {
-      return store[type] || "";
-    },
-    setData(type, v) {
-      store[type] = v;
-    },
-    types: ["text/plain"]
-  };
-  el.dispatchEvent(ev);
-  return store;
-}
-
-const expectedPaste = C.encodeToLatex("mundo");
-const pasteStore = firePaste(ed, "mundo");
-assert(
-  "paste event mutates clipboard",
-  pasteStore["text/plain"] === expectedPaste,
-  pasteStore["text/plain"]
+  "deleting backwards is not translated",
+  !delEv.defaultPrevented && readEd() === "Hola ñ",
+  { prevented: delEv.defaultPrevented, text: readEd() }
 );
 
-const biPaste = new window.Event("beforeinput", {
-  bubbles: true,
-  cancelable: true
-});
-biPaste.inputType = "insertFromPaste";
-const biStore = { "text/plain": "mundo" };
-biPaste.dataTransfer = {
-  getData(type) {
-    return biStore[type] || "";
-  },
-  setData(type, v) {
-    biStore[type] = v;
-  },
-  types: ["text/plain"]
-};
-ed.dispatchEvent(biPaste);
-if (!biPaste.defaultPrevented) {
-  const ins = biStore["text/plain"] || "mundo";
-  ed.textContent = (computeInnerText(ed) || "") + ins;
-  fireInput(ed);
-}
-assert(
-  "live paste auto-encodes",
-  readEd().includes(expectedPaste),
-  { got: readEd(), want: expectedPaste }
-);
-
-ed.textContent = "";
-fireInput(ed);
-cbtn.click();
-assert("paste block ends disabled", cbtn.textContent === "Encoding disabled", cbtn.textContent);
-assert("paste block editor empty", readEd() === "", readEd());
-
-ed.textContent = "Hola µ⌐Œσ";
-fireInput(ed);
-cbtn.click(); 
-assert("pre-send latin", readEd() === "Hola hola", readEd());
-cbtn.click(); 
-assert("pre-send latex", readEd() === "µ⌐Œσ µ⌐Œσ", readEd());
-
-ed.dispatchEvent(
-  new window.KeyboardEvent("keydown", {
-    key: "Enter",
-    bubbles: true,
-    cancelable: true
-  })
-);
-ed.textContent = "";
-fireInput(ed);
-await wait(80);
-
-cbtn.click(); 
-assert("after send disabled empty", readEd() === "", readEd());
-cbtn.click(); 
-assert("after send latin still empty", readEd() === "", readEd());
-cbtn.click(); 
-assert("after send latex still empty", readEd() === "", readEd());
-cbtn.click(); 
-
-ed.textContent = "Hola µ⌐Œσ";
-fireInput(ed);
-cbtn.click(); 
-assert("pre-live-off latin", readEd() === "Hola hola", readEd());
-liveBtn.click();
-assert("live label disabled", liveBtn.textContent === "Live encoding disabled", liveBtn.textContent);
-assert("live-off reverts to original", readEd() === "Hola µ⌐Œσ", readEd());
-
-const rawInsert = new window.Event("beforeinput", { bubbles: true, cancelable: true });
-rawInsert.inputType = "insertText";
-rawInsert.data = "z";
-ed.dispatchEvent(rawInsert);
-assert("live-off not prevented", rawInsert.defaultPrevented === false, rawInsert.defaultPrevented);
-if (!rawInsert.defaultPrevented) {
-  ed.textContent = (computeInnerText(ed) || "") + "z";
-  fireInput(ed);
-}
-assert("live-off raw stays", readEd() === "Hola µ⌐Œσz", readEd());
-
-ed.dispatchEvent(
-  new window.KeyboardEvent("keydown", {
-    key: "Enter",
-    bubbles: true,
-    cancelable: true
-  })
-);
-assert("live-off prepareSend encodes", readEd() === "Hola holaz", readEd());
-
-liveBtn.click();
-assert("live re-enabled label", liveBtn.textContent === "Live encoding enabled", liveBtn.textContent);
-cbtn.click(); 
-assert("latin→latex after live-off", readEd() === "µ⌐Œσ µ⌐Œσ√", readEd());
-cbtn.click(); 
-assert("back to disabled", readEd() === "Hola µ⌐Œσz", readEd());
-
-ed.textContent = "nuevo draft";
-fireInput(ed);
-cbtn.click(); 
-cbtn.click(); 
-assert("stale-prep latex mode", readEd() !== "nuevo draft", readEd());
-liveBtn.click(); 
-assert("stale-prep live off original", readEd() === "nuevo draft", readEd());
-ed.textContent = "otro texto";
-assert("stale-prep dom only (no input → original still old)", readEd() === "otro texto", readEd());
-ed.dispatchEvent(
-  new window.KeyboardEvent("keydown", {
-    key: "Enter",
-    bubbles: true,
-    cancelable: true
-  })
-);
-assert(
-  "stale cache does not leak on send",
-  readEd() === C.encodeToLatex("otro texto"),
-  { got: readEd(), want: C.encodeToLatex("otro texto") }
-);
-liveBtn.click(); 
-cbtn.click(); 
-ed.textContent = "";
-fireInput(ed);
-
-ed.textContent = "stale hello";
-fireInput(ed);
-cbtn.click(); 
-assert("stale prep latin", readEd() === "stale hello", readEd());
-liveBtn.click(); 
-assert("stale prep live off", readEd() === "stale hello", readEd());
-ed.textContent = "fresh typed";
-const staleEnter = new window.KeyboardEvent("keydown", {
-  key: "Enter",
-  bubbles: true,
-  cancelable: true
-});
-ed.dispatchEvent(staleEnter);
-assert(
-  "live-off send uses DOM not stale original",
-  readEd() === "fresh typed" || readEd() === C.encodeToLatex("fresh typed") || readEd() === C.decodeToLatin("fresh typed"),
-  readEd()
-);
-liveBtn.click(); 
-cbtn.click(); 
-cbtn.click(); 
-
-ed.textContent = "";
-fireInput(ed);
-msgBtn.click();
-assert("msg label enabled", msgBtn.textContent === "Message encoding enabled", msgBtn.textContent);
-
-const li3 = document.getElementById("chat-messages-333");
-await wait(50);
-const content3 = document.getElementById("message-content-333");
-const badge3 = content3.querySelector('[data-latex-ext="badge"]');
-assert("auto translate latex msg", content3.textContent.includes("si estas"), content3.textContent);
-assert("auto badge latex", badge3 && badge3.textContent === "(latex)", badge3?.textContent);
-
-msgBtn.click();
-assert("msg label disabled", msgBtn.textContent === "Message encoding disabled", msgBtn.textContent);
-await wait(50);
-assert("msg restore after disable", content3.textContent.includes("Φ∩"), content3.textContent);
-assert("badge removed", !content3.querySelector('[data-latex-ext="badge"]'), content3.innerHTML);
-
-const li4 = document.getElementById("chat-messages-444");
-const content4 = document.getElementById("message-content-444");
-const mbtn4 = li4.querySelector('[data-latex-ext="msg"]');
-mbtn4.click(); 
-const badge4 = content4.querySelector('[data-latex-ext="badge"]');
-const edited4 = content4.querySelector(".edited");
-assert("manual badge latex", badge4 && badge4.textContent === "(latex)", badge4?.textContent);
-assert(
-  "badge before edited",
-  badge4 && edited4 && !!(badge4.compareDocumentPosition(edited4) & Node.DOCUMENT_POSITION_FOLLOWING),
-  { badge: !!badge4, edited: !!edited4 }
-);
-assert("edited text intact", content4.textContent.includes("(edited)"), content4.textContent);
-assert("edited not translated", !content4.textContent.includes("⊘") && content4.textContent.includes("(edited)"), content4.textContent);
-mbtn4.click();
-assert("manual restore removes badge", !content4.querySelector('[data-latex-ext="badge"]'), content4.innerHTML);
-assert("manual restore keeps edited", content4.textContent.includes("(edited)"), content4.textContent);
-
-const slateHost = document.createElement("div");
-slateHost.setAttribute("data-slate-editor", "true");
-slateHost.setAttribute("role", "textbox");
-slateHost.setAttribute("contenteditable", "true");
-slateHost.innerHTML =
-  'yooo wsp ' +
-  '<div data-slate-node="element">' +
-  '<span data-slate-node="text"><span data-slate-leaf="true" class="emptyText__1464f">' +
-  '<span data-slate-zero-width="z" data-slate-length="0">\uFEFF</span></span></span>' +
-  '<span data-slate-node="element" data-slate-inline="true" data-slate-void="true" contenteditable="false" class="inlineVoid__1464f">' +
-  '<img class="emoji" data-type="emoji" data-name=":sob:" alt=":sob:">' +
-  '<span class="hiddenVisually_b18fe2">:sob:</span>' +
-  '<span data-slate-spacer="true"><span data-slate-node="text">' +
-  '<span data-slate-leaf="true"><span data-slate-zero-width="z" data-slate-length="0">\uFEFF</span></span></span></span>' +
-  "</span>" +
-  '<span data-slate-node="text"><span data-slate-leaf="true" class="emptyText__1464f">' +
-  '<span data-slate-zero-width="n" data-slate-length="0">\uFEFF<br></span></span></span>' +
-  "</div>";
-
-const wrap = document.createElement("div");
-wrap.className = "channelTextArea__w";
-wrap.innerHTML = '<div class="buttons__w"><button>Emoji</button></div>';
-wrap.insertBefore(slateHost, wrap.firstChild);
-document.body.appendChild(wrap);
-await wait(50);
-
-const slateBtn = wrap.querySelector('[data-latex-ext="composer"]');
-assert("slate-structure button", !!slateBtn, null);
-if (slateBtn) {
-  slateBtn.click(); 
-  const latinText = slateHost.textContent || "";
-  assert(
-    "slate latin: emoji + text present",
-    latinText.includes(":sob:") && latinText.includes("yooo"),
-    JSON.stringify(latinText)
-  );
-  slateBtn.click(); 
-  const latexText = slateHost.textContent || "";
-  assert("slate latex: no BOM after rewrite", !latexText.includes("\uFEFF"), JSON.stringify(latexText));
-  assert(
-    "slate latex: shortcode kept",
-    latexText.includes(":sob:"),
-    JSON.stringify(latexText)
-  );
-  slateBtn.click(); 
-  const backText = slateHost.textContent || "";
-  assert("slate disabled: no BOM after full cycle", !backText.includes("\uFEFF"), JSON.stringify(backText));
-  assert(
-    "slate disabled: has content",
-    backText.includes("yooo") || backText.includes(":sob:"),
-    JSON.stringify(backText)
-  );
-}
-
-const edE = document.getElementById("editor-empty");
-const cbtnE = [...document.querySelectorAll('[data-latex-ext="composer"]')].find(
-  (b) => b.closest(".channelTextArea__empty")
-);
-assert("empty has button", !!cbtnE, null);
-if (cbtnE) {
-  const htmlBefore = edE.innerHTML;
-  cbtnE.click();
-  cbtnE.click();
-  cbtnE.click();
-  assert(
-    "empty permute no DOM",
-    edE.innerHTML === htmlBefore && computeInnerText(edE) === "",
-    { before: htmlBefore, after: edE.innerHTML }
-  );
-}
-
-const li1 = document.getElementById("chat-messages-111");
-const mbtn1 = li1.querySelector('[data-latex-ext="msg"]');
-const mpanel1 = li1.querySelector('[data-latex-ext="msg-panel"]');
-const actions1 = li1.querySelector('[class*="buttonsInner"]');
-assert("msg panel exists", !!mpanel1, null);
-assert("msg panel title", mpanel1 && mpanel1.querySelector(".latex-ext-title").textContent === "LATEX v" + C.VERSION, mpanel1?.querySelector(".latex-ext-title")?.textContent);
-assert("msg panel first", actions1 && actions1.firstElementChild === mpanel1, actions1?.firstElementChild?.className);
-assert("msg btn inside panel", mbtn1 && mbtn1.parentElement === mpanel1, null);
-assert("msg btn label initial mixed", mbtn1 && mbtn1.textContent === "Mixed", mbtn1?.textContent);
-assert("detect mixed", C.detect("Œβσ hola") === "mixed", C.detect("Œβσ hola"));
-assert("detect pure latex", C.detect("Φ∩ εΦ╪σΦ") === "latex", C.detect("Φ∩ εΦ╪σΦ"));
-assert("detect pure latin", C.detect("hello world") === "latin", C.detect("hello world"));
-const content1 = document.getElementById("message-content-111");
-mbtn1.click();
-assert("mixed→latin converts latex part only", content1.textContent.includes("lma") && content1.textContent.includes("hola"), content1.textContent);
-assert("mixed badge", content1.querySelector('[data-latex-ext="badge"]')?.textContent === "(mixed)", content1.querySelector('[data-latex-ext="badge"]')?.textContent);
-assert("msg btn after mixed→latin", mbtn1.textContent === "Latin", mbtn1.textContent);
-mbtn1.click();
-assert("latin→latex encodes all", !content1.textContent.includes("hola") && content1.textContent.includes("µ⌐Œσ"), content1.textContent);
-assert("msg btn after latin→latex", mbtn1.textContent === "Latex", mbtn1.textContent);
-mbtn1.click();
-assert("latex→restore original mixed", content1.textContent.includes("Œβσ") && content1.textContent.includes("hola"), content1.textContent);
-assert("msg btn restored Mixed", mbtn1.textContent === "Mixed", mbtn1.textContent);
-assert("badge cleared on restore", !content1.querySelector('[data-latex-ext="badge"]'), content1.innerHTML);
-
-const li2 = document.getElementById("chat-messages-222");
-const mbtn2 = li2.querySelector('[data-latex-ext="msg"]');
-const embedDesc = li2.querySelector(".embedDescription__abc123");
-const compBtn = li2.querySelector(".button__def456 .contents__def456");
-mbtn2.click();
-assert("embed transform", embedDesc.textContent !== "Descripcion del embed", embedDesc.textContent);
-assert("component transform", compBtn.textContent !== "Aceptar cosa", compBtn.textContent);
-assert("label Latex", mbtn2.textContent === "Latex", mbtn2.textContent);
-assert(
-  "embed msg btn in panel",
-  mbtn2.parentElement && mbtn2.parentElement.dataset.latexExt === "msg-panel",
-  mbtn2.parentElement?.dataset?.latexExt
-);
-mbtn2.click();
-assert("embed restore", embedDesc.textContent === "Descripcion del embed", embedDesc.textContent);
-assert("component restore", compBtn.textContent === "Aceptar cosa", compBtn.textContent);
-
-if (msgBtn.textContent !== "Message encoding enabled") {
-  msgBtn.click();
-  await wait(50);
-}
-const content5 = document.getElementById("message-content-111");
-assert(
-  "auto mixed 111 to latin on enable",
-  content5.textContent.includes("lma") && content5.textContent.includes("hola"),
-  content5.textContent
-);
-assert(
-  "auto mixed badge",
-  content5.querySelector('[data-latex-ext="badge"]')?.textContent === "(mixed)",
-  content5.querySelector('[data-latex-ext="badge"]')?.textContent
-);
-
-mbtn1.click();
-assert(
-  "manual override of auto restores original",
-  content5.textContent.includes("Œβσ") && content5.textContent.includes("hola"),
-  content5.textContent
-);
-assert(
-  "override clears badge",
-  !content5.querySelector('[data-latex-ext="badge"]'),
-  content5.innerHTML
-);
-await wait(50);
-assert(
-  "manual override not re-autoed",
-  content5.textContent.includes("Œβσ"),
-  content5.textContent
-);
-
-msgBtn.click();
-await wait(50);
-assert(
-  "msg encoding off stays original",
-  content5.textContent.includes("Œβσ") && content5.textContent.includes("hola"),
-  content5.textContent
-);
-assert(
-  "off clears badge",
-  !content5.querySelector('[data-latex-ext="badge"]'),
-  content5.innerHTML
-);
-
-msgBtn.click();
-await wait(50);
-assert(
-  "msg encoding on re-autos mixed to latin",
-  content5.textContent.includes("lma"),
-  content5.textContent
-);
-assert(
-  "re-auto badge mixed",
-  content5.querySelector('[data-latex-ext="badge"]')?.textContent === "(mixed)",
-  content5.querySelector('[data-latex-ext="badge"]')?.textContent
-);
-
-mbtn1.click();
-assert(
-  "second override after re-auto restores",
-  content5.textContent.includes("Œβσ"),
-  content5.textContent
-);
-
-msgBtn.click();
-await wait(50);
-msgBtn.click();
-await wait(50);
-assert(
-  "settings bounce defaults to auto latin",
-  content5.textContent.includes("lma"),
-  content5.textContent
-);
-mbtn1.click();
-
-const panelHost = cbtn.closest('[data-latex-ext="panel"]') || cbtn.parentElement;
-const panelNodeBefore = panelHost;
-const panelParentBefore = panelHost.parentElement;
-if (window.__latexExtComposerScan) window.__latexExtComposerScan();
-if (window.__latexExtMessagesScan) window.__latexExtMessagesScan();
-await wait(20);
-assert(
-  "panel not moved on rescan",
-  panelNodeBefore.parentElement === panelParentBefore &&
-    panelNodeBefore.isConnected,
-  {
-    connected: panelNodeBefore.isConnected,
-    parentSame: panelNodeBefore.parentElement === panelParentBefore
-  }
-);
-
-const styleBefore = document.getElementById("latex-ext-styles");
-if (styleBefore) styleBefore.remove();
-if (window.__latexExtComposerScan) window.__latexExtComposerScan();
-assert("styles re-injected", !!document.getElementById("latex-ext-styles"), null);
-
-const bomEditor = document.createElement("div");
-bomEditor.setAttribute("data-slate-editor", "true");
-bomEditor.setAttribute("role", "textbox");
-bomEditor.setAttribute("contenteditable", "true");
-bomEditor.innerHTML =
-  'hola' +
-  '<span data-slate-zero-width="z" data-slate-length="0">﻿</span>' +
-  '<span data-slate-node="text"><span data-slate-leaf="true">' +
-  '<span data-slate-zero-width="n" data-slate-length="0">﻿<br></span></span></span>' +
-  'mundo';
-const bomWrap = document.createElement("div");
-bomWrap.className = "channelTextArea__bom";
-bomWrap.innerHTML = '<div class="buttons__bom"><button>E</button></div>';
-bomWrap.insertBefore(bomEditor, bomWrap.firstChild);
-document.body.appendChild(bomWrap);
-await wait(50);
-const bomBtn = bomWrap.querySelector('[data-latex-ext="composer"]');
-assert("bom editor has panel", !!bomBtn, null);
-if (bomBtn) {
-  bomBtn.click();
-  const latinBom = bomBtn.closest(".channelTextArea__bom")
-    ? bomEditor.textContent
-    : bomEditor.textContent;
-  assert(
-    "bom cycle latin keeps text",
-    latinBom.includes("hola") && latinBom.includes("mundo"),
-    JSON.stringify(latinBom)
-  );
-  bomBtn.click();
-  bomBtn.click();
-  assert(
-  "bom cycle back no duplicate",
-    (bomEditor.textContent.match(/hola/g) || []).length === 1 &&
-      (bomEditor.textContent.match(/mundo/g) || []).length === 1,
-    bomEditor.textContent
-  );
-}
-
-ed.textContent = "Hola µ⌐Œσ";
-fireInput(ed);
-cbtn.click();
-assert("post-send setup latin", readEd() === "Hola hola", readEd());
-ed.textContent = "";
-assert("cleared without input event", readEd() === "", readEd());
-cbtn.click();
-assert(
-  "empty editor after send: encode toggle no ghost",
-  readEd() === "",
-  readEd()
-);
-cbtn.click();
-assert(
-  "empty editor after send: back to disabled no ghost",
-  readEd() === "",
-  readEd()
-);
-
-ed.textContent = "send me";
-fireInput(ed);
-cbtn.click();
-assert("send path latin", readEd() === "send me", readEd());
-ed.dispatchEvent(
-  new window.KeyboardEvent("keydown", {
-    key: "Enter",
-    bubbles: true,
-    cancelable: true
-  })
-);
-ed.textContent = "";
-await wait(900);
-cbtn.click();
-cbtn.click();
-assert(
-  "after Enter+empty: no ghost restore",
-  readEd() === "",
-  readEd()
-);
-
-const ghostWrap = document.createElement("div");
-ghostWrap.className = "channelTextArea__ghost";
-ghostWrap.innerHTML =
-  '<div class="slateBox">' +
-  '<div data-slate-placeholder="true">Message Group</div>' +
-  '<div data-slate-editor="true" role="textbox" contenteditable="true" id="editor-ghost">' +
-  "wσwσwσwσw" +
-  '<div data-slate-node="element"><span data-slate-node="text">' +
-  '<span data-slate-leaf="true"><span data-slate-zero-width="n" data-slate-length="0">﻿<br></span></span></span></div>' +
-  "</div>" +
-  '<div class="buttons__ghost"><button>E</button></div>' +
-  "</div>";
-document.body.appendChild(ghostWrap);
-await wait(50);
-const ghostEd = document.getElementById("editor-ghost");
-const ghostBtn = ghostWrap.querySelector('[data-latex-ext="composer"]');
-assert("ghost editor has panel", !!ghostBtn, null);
-if (ghostBtn) {
-  ghostBtn.click();
-  assert(
-    "placeholder+orphan: toggle clears ghost",
-    !ghostEd.textContent.includes("wσwσ"),
-    ghostEd.textContent
-  );
-  ghostBtn.click();
-  ghostBtn.click();
-  assert(
-    "placeholder+orphan: full cycle stays clean",
-    !ghostEd.textContent.includes("wσwσ"),
-    ghostEd.textContent
-  );
-}
-
-ghostEd.textContent = "wσwσwσwσw";
-const ghostEnter = new window.KeyboardEvent("keydown", {
-  key: "Enter",
-  bubbles: true,
-  cancelable: true
-});
-ghostEd.dispatchEvent(ghostEnter);
-await wait(900);
-assert(
-  "placeholder+orphan: send clear removes ghost",
-  !ghostEd.textContent.includes("wσwσ"),
-  ghostEd.textContent
-);
-
-ed.textContent = "Hola µ⌐Œσ";
-fireInput(ed);
-cbtn.click();
-assert("live-toggle setup latin", readEd() === "Hola hola", readEd());
-ed.textContent = "Hola hola!";
-fireInput(ed);
-liveBtn.click();
-assert(
-  "live-off keeps newly typed text in cache form",
-  readEd().includes("!"),
-  readEd()
-);
-liveBtn.click();
-assert(
-  "live-on keeps newly typed text",
-  readEd().includes("!"),
-  readEd()
-);
-cbtn.click();
-cbtn.click();
-
-ed.textContent = "Hola µ⌐Œσ";
-fireInput(ed);
-cbtn.click();
-cbtn.click();
-assert("live-on setup latex", readEd() !== "Hola µ⌐Œσ", readEd());
-ed.textContent = readEd() + "!";
-fireInput(ed);
-liveBtn.click();
-assert(
-  "live-off after latex typing keeps exclamation",
-  readEd().includes("!"),
-  readEd()
-);
-liveBtn.click();
-cbtn.click();
-cbtn.click();
-
-await wait(50);
-assert(
-  "no panel in search editor",
-  !document.getElementById("search-editor")?.closest('[class*="searchBar"]')?.querySelector('[data-latex-ext="panel"]'),
-  document.querySelector("#search-editor ~ [data-latex-ext='panel'], #search-editor [data-latex-ext='panel']")?.outerHTML
-);
-assert(
-  "no panel in modal editor",
-  !document.getElementById("modal-editor")?.parentElement?.querySelector('[data-latex-ext="panel"]') &&
-    !document.getElementById("modal-editor")?.querySelector('[data-latex-ext="panel"]'),
-  null
-);
-assert(
-  "search editor has no composer button ancestor outside channelTextArea",
-  !document.getElementById("search-editor")?.closest('[data-latex-ext="panel"]'),
-  null
-);
-
-const li777 = document.getElementById("chat-messages-777");
-await wait(50);
-if (msgBtn.textContent === "Message encoding enabled") {
-  msgBtn.click();
-  await wait(50);
-}
-const quotedContent = document.getElementById("message-content-999");
-const replyContent = document.getElementById("message-content-777");
-const replyBtn = li777.querySelector('[data-latex-ext="msg"]');
-assert("reply msg btn exists", !!replyBtn, null);
-assert(
-  "quoted content not selected as badge host initially",
-  !quotedContent.querySelector('[data-latex-ext="badge"]'),
-  quotedContent.innerHTML
-);
-assert(
-  "reply content has no badge before toggle",
-  !replyContent.querySelector('[data-latex-ext="badge"]'),
-  replyContent.innerHTML
-);
-
-if (replyBtn) {
-  replyBtn.click();
-  await wait(10);
-  const badgeInReply = replyContent.querySelector('[data-latex-ext="badge"]');
-  const badgeInQuoted = quotedContent.querySelector('[data-latex-ext="badge"]');
-  assert("badge in reply content", !!badgeInReply, replyContent.innerHTML);
-  assert("badge not in quoted content", !badgeInQuoted, quotedContent.innerHTML);
-  assert(
-    "quoted text not translated by reply toggle",
-    quotedContent.textContent === "quoted original text",
-    quotedContent.textContent
-  );
-  assert(
-    "reply body transformed",
-    replyContent.textContent.includes("sie") || replyContent.textContent.includes("Φ∩"),
-    replyContent.textContent
-  );
-}
-
-const savedRaw = (() => {
-  try {
-    return window.localStorage.getItem("latex-ext-settings");
-  } catch (_) {
-    return null;
-  }
-})();
-assert(
-  "settings persisted after message toggle",
-  !!savedRaw && savedRaw.includes('"message"'),
-  savedRaw
-);
-let reloaded = null;
-try {
-  reloaded = JSON.parse(savedRaw || "{}");
-} catch (_) {}
-assert(
-  "persisted message flag matches runtime",
-  reloaded && reloaded.message === C.settings.message,
-  { saved: reloaded, runtime: C.settings }
-);
-
-if (msgBtn.textContent !== "Message encoding enabled") {
-  msgBtn.click();
-  await wait(50);
-}
-const li333b = document.getElementById("chat-messages-333");
-const content333b = document.getElementById("message-content-333");
-const mbtn333b = li333b.querySelector('[data-latex-ext="msg"]');
-if (!content333b.querySelector('[data-latex-ext="badge"]')) {
-  await wait(30);
-}
-const autoLatex = content333b.textContent.includes("si estas");
-assert("live-reset setup auto on", autoLatex || !!content333b.querySelector('[data-latex-ext="badge"]'), content333b.textContent);
-mbtn333b.click();
-await wait(10);
-assert(
-  "live-reset manual override to original",
-  content333b.textContent.includes("Φ∩") &&
-    !content333b.querySelector('[data-latex-ext="badge"]'),
-  content333b.textContent
-);
-liveBtn.click();
-await wait(60);
-assert(
-  "live toggle does not clear message override",
-  content333b.textContent.includes("Φ∩") &&
-    !content333b.querySelector('[data-latex-ext="badge"]'),
-  content333b.textContent
-);
-liveBtn.click();
-await wait(20);
-mbtn333b.click();
-msgBtn.click();
-await wait(50);
-
-const liEdit = document.getElementById("chat-messages-111");
-const contentEdit = document.getElementById("message-content-111");
-const mbtnEdit = liEdit.querySelector('[data-latex-ext="msg"]');
-if (!contentEdit.querySelector('[data-latex-ext="badge"]')) {
-  mbtnEdit.click();
-  await wait(10);
-}
-assert(
-  "edit-resync setup transformed",
-  !!contentEdit.querySelector('[data-latex-ext="badge"]'),
-  contentEdit.innerHTML
-);
-contentEdit.innerHTML = '<div class="markup">edited by discord now</div>';
-await wait(80);
-assert(
-  "edit without badge child rescans",
-  !contentEdit.querySelector('[data-latex-ext="badge"]'),
-  contentEdit.innerHTML
-);
-mbtnEdit.click();
-await wait(10);
-assert(
-  "re-toggle after edit transforms new content",
-  !!contentEdit.querySelector('[data-latex-ext="badge"]') &&
-    contentEdit.textContent.includes("ε₳∩╪ε₳"),
-  contentEdit.innerHTML
-);
-mbtnEdit.click();
-
-while (cbtn.dataset.mode !== "disabled") cbtn.click();
-ed.textContent = "undo test";
-fireInput(ed);
-cbtn.click();
-cbtn.click();
-assert(
-  "undo setup latex",
-  readEd() !== "undo test" && readEd().length > 0 && cbtn.dataset.mode === "latex",
-  { text: readEd(), mode: cbtn.dataset.mode }
-);
-const undoEv = new window.Event("beforeinput", {
-  bubbles: true,
-  cancelable: true
-});
-undoEv.inputType = "historyUndo";
-ed.dispatchEvent(undoEv);
-await wait(10);
-ed.textContent = "undo";
-fireInput(ed);
-await wait(10);
-assert(
-  "history undo keeps display consistent",
-  readEd() === "undo" ||
-    readEd() === C.encodeToLatex("undo") ||
-    readEd().includes("undo") ||
-    readEd().length > 0,
-  readEd()
-);
-while (cbtn.dataset.mode !== "disabled") cbtn.click();
-
-const compEv = new window.Event("beforeinput", {
-  bubbles: true,
-  cancelable: true
-});
+const compEv = new window.Event("beforeinput", { bubbles: true, cancelable: true });
 compEv.inputType = "insertCompositionText";
 compEv.isComposing = true;
 compEv.data = "ñ";
 ed.dispatchEvent(compEv);
 assert(
-  "composition beforeinput not prevented",
-  !compEv.defaultPrevented,
-  compEv.defaultPrevented
+  "IME composition input is not intercepted or rewritten",
+  !compEv.defaultPrevented && compEv.data === "ñ",
+  { prevented: compEv.defaultPrevented, data: compEv.data }
 );
 ed.dispatchEvent(new window.Event("compositionend", { bubbles: true }));
+assert("IME compositionend does not translate the text", readEd() === "Hola ñ", readEd());
+
+const pasteStore = firePaste(ed, "mundo");
+assert(
+  "paste clipboard data is left untouched while encoding is enabled",
+  pasteStore["text/plain"] === "mundo",
+  pasteStore["text/plain"]
+);
+
+setEncode(false);
+ed.textContent = "";
+typeStr(ed, "Hola mundo");
+assert(
+  "typing while encoding is disabled leaves the DOM text byte-for-byte identical",
+  readEd() === "Hola mundo",
+  readEd()
+);
+const pasteStore2 = firePaste(ed, "adios");
+assert(
+  "paste clipboard data is left untouched while encoding is disabled",
+  pasteStore2["text/plain"] === "adios",
+  pasteStore2["text/plain"]
+);
+ed.textContent = "";
+fireInput(ed);
+assert(
+  "clearing the editor produces no ghost text",
+  readEd() === "" && strayRootText(ed).length === 0,
+  { text: readEd(), strays: strayRootText(ed) }
+);
+
+/* ================================================================== *
+ * 6. Encoding happens at send time only
+ * ================================================================== */
+const sendChannel = addComposerChannel(
+  '<form class="formSend">' +
+    '<div data-slate-editor="true" role="textbox" contenteditable="true" class="sendEditor"></div>' +
+    '<div class="buttons__send"><button type="submit" aria-label="Send message">S</button></div>' +
+  "</form>"
+);
+const enviarChannel = addComposerChannel(
+  '<div data-slate-editor="true" role="textbox" contenteditable="true" class="sendEditor2"></div>' +
+  '<div class="buttons__send2"><button type="button" aria-label="Enviar mensaje">E</button></div>'
+);
+await wait(30);
+const sendEd = sendChannel.querySelector(".sendEditor");
+const sendEd2 = enviarChannel.querySelector(".sendEditor2");
+const submitBtn = sendChannel.querySelector('button[type="submit"]');
+const enviarBtn = enviarChannel.querySelector('[aria-label="Enviar mensaje"]');
+assert("send channel composer gets its own panel", !!sendChannel.querySelector('[data-latex-ext="panel"]'), null);
+
+setEncode(true);
+const statsBeforeEnter = C.stats.messages;
+sendEd.textContent = "Hola mundo";
+fireInput(sendEd);
+sendEd.dispatchEvent(key("Enter"));
+assert(
+  "Enter encodes the whole editor content at send time",
+  sendEd.textContent === C.encodeToLatex("Hola mundo"),
+  { got: sendEd.textContent, want: C.encodeToLatex("Hola mundo") }
+);
+assert(
+  "encoding on send bumps the messages stat",
+  C.stats.messages === statsBeforeEnter + 1,
+  { before: statsBeforeEnter, after: C.stats.messages }
+);
+
+const statsBeforeNoop = C.stats.messages;
+sendEd2.textContent = "µ⌐Œσ";
+fireInput(sendEd2);
+sendEd2.dispatchEvent(key("Enter"));
+assert(
+  "send-time encoding is a no-op for already-latex text",
+  sendEd2.textContent === "µ⌐Œσ",
+  sendEd2.textContent
+);
+assert(
+  "no-op encoding does not bump the messages stat",
+  C.stats.messages === statsBeforeNoop,
+  { before: statsBeforeNoop, after: C.stats.messages }
+);
+
+const statsBeforeClick = C.stats.messages;
+sendEd.textContent = "otra linea";
+fireInput(sendEd);
+submitBtn.dispatchEvent(mouse("mousedown"));
+assert(
+  "mousedown on the send button encodes the editor content",
+  sendEd.textContent === C.encodeToLatex("otra linea"),
+  { got: sendEd.textContent, want: C.encodeToLatex("otra linea") }
+);
+assert(
+  "send-button mousedown bumps the messages stat",
+  C.stats.messages === statsBeforeClick + 1,
+  { before: statsBeforeClick, after: C.stats.messages }
+);
+
+sendEd2.textContent = "tercera";
+fireInput(sendEd2);
+enviarBtn.dispatchEvent(mouse("mousedown"));
+assert(
+  "send button matched via the 'enviar' aria-label also encodes",
+  sendEd2.textContent === C.encodeToLatex("tercera"),
+  { got: sendEd2.textContent, want: C.encodeToLatex("tercera") }
+);
+
+setEncode(false);
+sendEd.textContent = "sin codificar";
+fireInput(sendEd);
+sendEd.dispatchEvent(key("Enter"));
+assert(
+  "Enter does not touch the editor when encoding is disabled",
+  sendEd.textContent === "sin codificar",
+  sendEd.textContent
+);
+const statsBeforeDisabled = C.stats.messages;
+sendEd.textContent = "otra vez";
+fireInput(sendEd);
+submitBtn.dispatchEvent(mouse("mousedown"));
+assert(
+  "send-button mousedown does not touch the editor when encoding is disabled",
+  sendEd.textContent === "otra vez",
+  sendEd.textContent
+);
+assert(
+  "disabled encoding never bumps the messages stat on send",
+  C.stats.messages === statsBeforeDisabled,
+  { before: statsBeforeDisabled, after: C.stats.messages }
+);
+
+setEncode(true);
+searchEditor.textContent = "buscar hola";
+fireInput(searchEditor);
+searchEditor.dispatchEvent(key("Enter"));
+searchEditor.closest("form").querySelector('button[type="submit"]').dispatchEvent(mouse("mousedown"));
+assert(
+  "search editor is never encoded, even with encoding enabled",
+  searchEditor.textContent === "buscar hola",
+  searchEditor.textContent
+);
+modalEditor.textContent = "guardar mundo";
+fireInput(modalEditor);
+modalEditor.dispatchEvent(key("Enter"));
+modalEditor.closest(".modalForm__m").querySelector('button[type="button"]').dispatchEvent(mouse("mousedown"));
+assert(
+  "modal editor is never encoded, even with encoding enabled",
+  modalEditor.textContent === "guardar mundo",
+  modalEditor.textContent
+);
+setEncode(false);
+
+const emptyPanelBtn = emptyEditor
+  .closest('[class*="channelTextArea"]')
+  .querySelector('[data-latex-ext="composer"]');
+const emptyHtmlBefore = emptyEditor.innerHTML;
+emptyPanelBtn.click();
+emptyPanelBtn.click();
+assert(
+  "toggling encoding on an empty composer never writes into the DOM",
+  emptyEditor.innerHTML === emptyHtmlBefore && computeInnerText(emptyEditor) === "",
+  { before: emptyHtmlBefore, after: emptyEditor.innerHTML }
+);
+setEncode(false);
+
+const bomWrap = addComposerChannel('<div class="buttons__bom"><button>Emoji</button></div>');
+const bomEditor = document.createElement("div");
+bomEditor.setAttribute("data-slate-editor", "true");
+bomEditor.setAttribute("role", "textbox");
+bomEditor.setAttribute("contenteditable", "true");
+bomEditor.innerHTML =
+  "hola" +
+  '<span data-slate-zero-width="z" data-slate-length="0">﻿</span>' +
+  '<span data-slate-node="text"><span data-slate-leaf="true">' +
+  '<span data-slate-zero-width="n" data-slate-length="0">﻿<br></span></span></span>' +
+  "mundo";
+bomWrap.insertBefore(bomEditor, bomWrap.firstChild);
+await wait(30);
+assert("slate/BOM composer gets a panel", !!bomWrap.querySelector('[data-latex-ext="composer"]'), null);
+setEncode(true);
+bomEditor.dispatchEvent(key("Enter"));
+assert(
+  "slate/BOM composer is encoded on send with no leftover zero-width chars",
+  bomEditor.textContent === C.encodeToLatex("holamundo") &&
+    !bomEditor.textContent.includes("﻿") &&
+    !bomEditor.innerHTML.includes("﻿"),
+  { text: bomEditor.textContent, html: bomEditor.innerHTML }
+);
+setEncode(false);
+
+// Ghost/orphan regression: a send whose composer shows a slate placeholder
+// must strip the stray root-level text nodes Discord leaves behind.
+function ghostChannel() {
+  return addComposerChannel(
+    '<div class="slateBox">' +
+      '<div data-slate-placeholder="true">Message Group</div>' +
+      '<div data-slate-editor="true" role="textbox" contenteditable="true" class="ghostEditor">' +
+        "wσwσwσwσw" +
+        '<div data-slate-node="element"><span data-slate-node="text">' +
+        '<span data-slate-leaf="true"><span data-slate-zero-width="n" data-slate-length="0">﻿<br></span>' +
+        "</span></span></div></div>" +
+      '<div class="buttons__ghost"><button type="submit" aria-label="Send message">S</button></div>' +
+    "</div>"
+  );
+}
+const ghostWrap = ghostChannel();
+await wait(30);
+const ghostEd = ghostWrap.querySelector(".ghostEditor");
+assert(
+  "ghost fixture starts with root text plus slate structure plus a visible placeholder",
+  strayRootText(ghostEd).length === 1 &&
+    !!ghostEd.querySelector("[data-slate-node]") &&
+    !!ghostWrap.querySelector('[data-slate-placeholder="true"]'),
+  { strays: strayRootText(ghostEd), html: ghostEd.innerHTML }
+);
+ghostEd.dispatchEvent(key("Enter"));
+await wait(900);
+assert(
+  "ghost root text is stripped by the send-clear timers",
+  strayRootText(ghostEd).length === 0 && !ghostEd.textContent.includes("wσwσ"),
+  { strays: strayRootText(ghostEd), text: ghostEd.textContent }
+);
+
+/* ================================================================== *
+ * 7. Incoming messages
+ * ================================================================== */
+const li111 = document.getElementById("chat-messages-111");
+const li222 = document.getElementById("chat-messages-222");
+const li333 = document.getElementById("chat-messages-333");
+const li444 = document.getElementById("chat-messages-444");
+const li777 = document.getElementById("chat-messages-777");
+const btn111 = msgBtn(li111);
+const btn222 = msgBtn(li222);
+const btn333 = msgBtn(li333);
+const msgPanel333 = li333.querySelector('[data-latex-ext="msg-panel"]');
+
+assert("message panel exists", !!msgPanel333, null);
+assert(
+  "message panel title",
+  msgPanel333.querySelector(".latex-ext-title").textContent.startsWith("LATEX v" + C.VERSION),
+  msgPanel333.querySelector(".latex-ext-title").textContent
+);
+assert(
+  "message panel is prepended into the actions container",
+  li333.querySelector('[class*="buttonsInner"]').firstElementChild === msgPanel333,
+  li333.querySelector('[class*="buttonsInner"]').firstElementChild?.className
+);
+assert("message button lives inside the message panel", btn333.parentElement === msgPanel333, null);
+
+const orig333 = "Φ∩ εΦ╪σΦ εΦ╪⌐ Ωε⊥";
+assert(
+  "latex message is auto-decoded to latin on scan",
+  msgText(li333) === C.decodeToLatin(orig333),
+  msgText(li333)
+);
+assert(
+  "auto-decoded message gets a (latex) badge",
+  msgBadge(li333)?.textContent === "(latex)",
+  msgBadge(li333)?.textContent
+);
+assert(
+  "auto-decoded message button reads 'Latin'",
+  btn333.textContent === "Latin" && btn333.dataset.mode === "latin",
+  { text: btn333.textContent, mode: btn333.dataset.mode }
+);
+assert(
+  "mixed message is auto-decoded to latin on scan",
+  msgText(li111) === "lma hola",
+  msgText(li111)
+);
+assert(
+  "auto-decoded mixed message gets a (mixed) badge",
+  msgBadge(li111)?.textContent === "(mixed)",
+  msgBadge(li111)?.textContent
+);
+assert(
+  "auto-decoded mixed message button reads 'Latin'",
+  btn111.textContent === "Latin",
+  btn111.textContent
+);
+assert(
+  "the hover-bar action buttons are never translated",
+  [...li111.querySelectorAll(".hoverBarButton")].map((b) => b.textContent).join("|") === "+|P|...",
+  [...li111.querySelectorAll(".hoverBarButton")].map((b) => b.textContent).join("|")
+);
+
+const embedTitle = li222.querySelector(".embedTitle__abc123");
+const embedDesc = li222.querySelector(".embedDescription__abc123");
+const embedField = li222.querySelector(".embedFieldValue__abc123");
+const compBtn = li222.querySelector(".button__def456 .contents__def456");
+assert(
+  "latin-only message is left untouched by auto-decoding",
+  embedTitle.textContent === "Titulo embed" &&
+    embedDesc.textContent === "Descripcion del embed" &&
+    embedField.textContent === "Valor del campo" &&
+    compBtn.textContent === "Aceptar cosa" &&
+    !msgBadge(li222),
+  {
+    title: embedTitle.textContent,
+    desc: embedDesc.textContent,
+    field: embedField.textContent,
+    comp: compBtn.textContent,
+    badge: msgBadge(li222)?.textContent
+  }
+);
+assert(
+  "latin-only message button reports the detected latin mode",
+  btn222.textContent === "Latin" && btn222.dataset.mode === "latin",
+  { text: btn222.textContent, mode: btn222.dataset.mode }
+);
+
+const quotedContent = document.getElementById("message-content-999");
+assert(
+  "reply preview quote is never translated or badged",
+  quotedContent.textContent === "quoted original text" &&
+    !quotedContent.querySelector('[data-latex-ext="badge"]'),
+  quotedContent.innerHTML
+);
+assert(
+  "reply body itself is translated",
+  msgText(li777) === "actual reply sie",
+  msgText(li777)
+);
+
+assert(
+  "(edited) marker is excluded from translation",
+  msgText(li444) === "si estas(edited)",
+  msgText(li444)
+);
+
+// Decoding "(edited)" is a no-op, so exercise the *encoding* direction to
+// prove the marker really is excluded from the translated text nodes.
+const editedMsg = addMessage('Φ∩ <span class="edited">(edited)</span>');
+await wait(30);
+msgBtn(editedMsg).click();
+assert(
+  "the (edited) marker is never encoded when a message is shown as latex",
+  msgText(editedMsg) === C.encodeToLatex("si") + " (edited)",
+  msgText(editedMsg)
+);
+assert(
+  "badge is placed before the (edited) marker",
+  msgBadge(li444) &&
+    msgBadge(li444).nextElementSibling?.classList.contains("edited"),
+  { badge: msgBadge(li444)?.textContent, next: msgBadge(li444)?.nextElementSibling?.className }
+);
+
+// Manual cycling back from an auto-decoded translation.
+btn333.click();
+assert(
+  "clicking an auto-decoded message restores the original latex text",
+  msgText(li333) === orig333,
+  msgText(li333)
+);
+assert(
+  "clicking an auto-decoded message removes the badge",
+  !msgBadge(li333),
+  msgContent(li333).innerHTML
+);
+
+// Regression: an explicit click must not be undone by the automatic decoder.
+scanMessages();
+await wait(30);
+assert(
+  "manual click is not undone by a forced rescan (manual flag honoured)",
+  msgText(li333) === orig333 && !msgBadge(li333),
+  { text: msgText(li333), badge: msgBadge(li333)?.textContent }
+);
+scanMessages();
+await wait(60);
+assert(
+  "manual click is still not undone after further rescans",
+  msgText(li333) === orig333 && !msgBadge(li333),
+  { text: msgText(li333), badge: msgBadge(li333)?.textContent }
+);
+
+btn333.click();
+assert(
+  "clicking again re-decodes the original latex text",
+  msgText(li333) === C.decodeToLatin(orig333),
+  msgText(li333)
+);
+assert(
+  "re-decoding restores the (latex) badge",
+  msgBadge(li333)?.textContent === "(latex)",
+  msgBadge(li333)?.textContent
+);
+
+btn111.click();
+assert(
+  "mixed translation clicks through to whole-message latex",
+  msgText(li111) === C.encodeToLatex("lma hola") &&
+    btn111.textContent === "Latex",
+  { text: msgText(li111), btn: btn111.textContent }
+);
+assert(
+  "mixed badge is kept while showing the latex translation",
+  msgBadge(li111)?.textContent === "(mixed)",
+  msgBadge(li111)?.textContent
+);
+btn111.click();
+assert(
+  "clicking after whole-message latex restores the original mixed text",
+  msgText(li111) === "Œβσ hola" && !msgBadge(li111),
+  { text: msgText(li111), badge: msgBadge(li111)?.textContent }
+);
+assert(
+  "message button falls back to the detected mode after restore",
+  btn111.textContent === "Mixed" && btn111.dataset.mode === "mixed",
+  { text: btn111.textContent, mode: btn111.dataset.mode }
+);
+
+btn222.click();
+assert(
+  "embed description is translated on click",
+  embedDesc.textContent === C.encodeToLatex("Descripcion del embed"),
+  embedDesc.textContent
+);
+assert(
+  "message component label is translated on click",
+  compBtn.textContent === C.encodeToLatex("Aceptar cosa"),
+  compBtn.textContent
+);
+assert(
+  "embed translation adds a (latin) badge in the message content",
+  msgBadge(li222)?.textContent === "(latin)",
+  msgBadge(li222)?.textContent
+);
+btn222.click();
+assert(
+  "embed and component text are restored on the next click",
+  embedDesc.textContent === "Descripcion del embed" &&
+    compBtn.textContent === "Aceptar cosa" &&
+    !msgBadge(li222),
+  { desc: embedDesc.textContent, comp: compBtn.textContent }
+);
+
+// A message without a content selector/embed/component falls back to the
+// message container as its translatable root.
+const fbMsg = document.createElement("li");
+fbMsg.id = "chat-messages-t" + msgSeq++;
+fbMsg.innerHTML =
+  '<div class="messageContent_fallback">Φ∩εΦ╪σΦ fallback</div>' +
+  '<div class="buttonContainer_c19a55"><div class="buttons__5126c" role="group" aria-label="Message Actions">' +
+  '<div class="buttonsInner__5126c popover_f84418"><div class="hoverBarButton">P</div></div>' +
+  "</div></div>";
+document.querySelector("ul").appendChild(fbMsg);
+await wait(30);
+const fbBody = fbMsg.querySelector(".messageContent_fallback");
+assert(
+  "a message without a content selector is translated through its fallback root",
+  !!msgBtn(fbMsg) && extFreeText(fbBody) === "siestas fallback",
+  { text: extFreeText(fbBody), btn: !!msgBtn(fbMsg) }
+);
+assert(
+  "the fallback translation never touches the action buttons",
+  fbMsg.querySelector(".hoverBarButton").textContent === "P",
+  fbMsg.querySelector(".hoverBarButton").textContent
+);
+
+// Robustness: Discord may re-render the same characters as a different set of
+// text nodes. Clicking must still work and a second click must return.
+const segMsg = addMessage("Φ∩ εΦ╪σΦ");
+await wait(30);
+const segBtn = msgBtn(segMsg);
+const segOriginal = "Φ∩ εΦ╪σΦ";
+const segTranslated = C.decodeToLatin(segOriginal);
+assert(
+  "segmentation fixture is auto-decoded",
+  msgText(segMsg) === segTranslated,
+  msgText(segMsg)
+);
+msgContent(segMsg).querySelector(".markup").innerHTML = segTranslated
+  .split("")
+  .map((c) => "<i>" + c + "</i>")
+  .join("");
+scanMessages();
+await wait(20);
+assert(
+  "re-segmented markup still reads as the same translated text",
+  msgText(segMsg) === segTranslated,
+  msgText(segMsg)
+);
+segBtn.click();
+assert(
+  "click after re-segmentation restores the original text (no silent no-op)",
+  msgText(segMsg) === segOriginal,
+  msgText(segMsg)
+);
+segBtn.click();
+assert(
+  "second click after re-segmentation returns to the previous state",
+  msgText(segMsg) === segTranslated,
+  msgText(segMsg)
+);
+assert(
+  "second click after re-segmentation restores the badge",
+  msgBadge(segMsg)?.textContent === "(latex)",
+  msgBadge(segMsg)?.textContent
+);
+
+// Peek: hold the button to show the original.
+const peekMsg = addMessage("Hola mundo");
+await wait(30);
+const peekBtn = msgBtn(peekMsg);
+peekBtn.click();
+const peekShown = C.encodeToLatex("Hola mundo");
+assert(
+  "peek fixture is translated",
+  msgText(peekMsg) === peekShown,
+  msgText(peekMsg)
+);
+peekBtn.dispatchEvent(pointer("pointerdown"));
+assert(
+  "pointerdown shows the original while the button is held",
+  msgText(peekMsg) === "Hola mundo" &&
+    !msgBadge(peekMsg),
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
+);
+await wait(20);
+peekBtn.dispatchEvent(pointer("pointerup"));
 await wait(10);
-
-setAuto("out");
 assert(
-  "auto out label",
-  autoBtn.textContent === "Encode outgoing only",
-  autoBtn.textContent
+  "pointerup after a short hold restores the translation and the badge",
+  msgText(peekMsg) === peekShown &&
+    msgBadge(peekMsg)?.textContent === "(latin)",
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
 );
-autoBtn.click();
+await wait(260);
+peekBtn.dispatchEvent(pointer("pointerdown"));
+await wait(260);
+peekBtn.dispatchEvent(pointer("pointerup"));
+await wait(10);
 assert(
-  "auto cycle to both",
-  autoBtn.textContent === "Encode and decode",
-  autoBtn.textContent
+  "pointerup after a long hold restores the translation and the badge",
+  msgText(peekMsg) === peekShown &&
+    msgBadge(peekMsg)?.textContent === "(latin)",
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
 );
+peekBtn.dispatchEvent(mouse("click"));
 assert(
-  "auto both sets message on",
-  C.settings.auto === "both" && C.settings.live && C.settings.message,
-  C.settings
+  "click right after a long hold is suppressed",
+  msgText(peekMsg) === peekShown &&
+    msgBadge(peekMsg)?.textContent === "(latin)",
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
 );
-autoBtn.click();
+// A second long hold that ends in pointerleave also arms the suppression, but
+// the flag must be cleared again by the next pointerdown so that a later click
+// is not swallowed.
+await wait(260);
+peekBtn.dispatchEvent(pointer("pointerdown"));
+await wait(260);
+peekBtn.dispatchEvent(pointer("pointerleave"));
+await wait(10);
 assert(
-  "auto cycle to off",
-  autoBtn.textContent === "No auto encoding",
-  autoBtn.textContent
+  "pointerleave after a long hold restores the translation and the badge",
+  msgText(peekMsg) === peekShown &&
+    msgBadge(peekMsg)?.textContent === "(latin)",
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
 );
+peekBtn.dispatchEvent(pointer("pointerdown"));
+peekBtn.dispatchEvent(pointer("pointerup"));
+peekBtn.dispatchEvent(mouse("click"));
 assert(
-  "auto off clears live and message",
-  C.settings.auto === "off" && !C.settings.live && !C.settings.message,
-  C.settings
-);
-autoBtn.click();
-assert(
-  "auto cycle to in",
-  autoBtn.textContent === "Decode incoming only",
-  autoBtn.textContent
-);
-assert(
-  "auto in sets message on live off",
-  C.settings.auto === "in" && !C.settings.live && C.settings.message,
-  C.settings
-);
-autoBtn.click();
-assert(
-  "auto cycle wraps to out",
-  autoBtn.textContent === "Encode outgoing only",
-  autoBtn.textContent
-);
-assert(
-  "auto out sets live on message off",
-  C.settings.auto === "out" && C.settings.live && !C.settings.message,
-  C.settings
+  "a later click after a pointerleave is not suppressed by the old hold",
+  msgText(peekMsg) !== peekShown && !msgBadge(peekMsg),
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
 );
 
-setAuto("out");
-while (cbtn.dataset.mode !== "disabled") cbtn.click();
-const modeBeforeKb = cbtn.dataset.mode;
-ed.dispatchEvent(
-  new window.KeyboardEvent("keydown", {
-    key: "L",
-    ctrlKey: true,
-    shiftKey: true,
-    bubbles: true,
-    cancelable: true
-  })
+// Decode toggling restores and re-applies every translation.
+await setDecode(false);
+assert(
+  "turning decoding off restores translated messages to their originals",
+  msgText(li333) === orig333 &&
+    msgText(peekMsg) === "Hola mundo",
+  {
+    l333: msgText(li333),
+    peek: msgText(peekMsg)
+  }
 );
 assert(
-  "ctrl+shift+L cycles encoding",
-  cbtn.dataset.mode !== modeBeforeKb || modeBeforeKb === "disabled",
-  { before: modeBeforeKb, after: cbtn.dataset.mode }
+  "turning decoding off removes every badge",
+  document.querySelectorAll('[data-latex-ext="badge"]').length === 0,
+  document.querySelectorAll('[data-latex-ext="badge"]').length
 );
-while (cbtn.dataset.mode !== "disabled") cbtn.click();
-
-const titleEl = cbtn.parentElement.querySelector(".latex-ext-title");
 assert(
-  "stats shown in title after transforms",
-  C.stats.messages > 0 && titleEl.textContent.includes("·"),
-  { stats: C.stats.messages, title: titleEl.textContent }
+  "decode button reflects the disabled state",
+  dbtn.textContent === "Decoding disabled" && dbtn.dataset.mode === "disabled",
+  { text: dbtn.textContent, mode: dbtn.dataset.mode }
+);
+await setDecode(true);
+assert(
+  "turning decoding back on re-decodes non-manual messages",
+  msgText(li333) === C.decodeToLatin(orig333) &&
+    msgBadge(li333)?.textContent === "(latex)",
+  { text: msgText(li333), badge: msgBadge(li333)?.textContent }
+);
+assert(
+  "turning decoding back on does not re-decode a manually overridden message",
+  msgText(peekMsg) === "Hola mundo" && !msgBadge(peekMsg),
+  { text: msgText(peekMsg), badge: msgBadge(peekMsg)?.textContent }
+);
+assert(
+  "decode button reflects the enabled state",
+  dbtn.textContent === "Decoding enabled" && dbtn.dataset.mode === "enabled",
+  { text: dbtn.textContent, mode: dbtn.dataset.mode }
 );
 
-setAuto("in");
-await wait(50);
-const liPeek = document.getElementById("chat-messages-333");
-const contentPeek = document.getElementById("message-content-333");
-const peekBtn = liPeek.querySelector('[data-latex-ext="msg"]');
-if (!contentPeek.querySelector('[data-latex-ext="badge"]') && peekBtn) {
-  peekBtn.click();
-  await wait(10);
-}
-const peekOrig = contentPeek.textContent;
-assert("peek setup has applied", !!contentPeek.querySelector('[data-latex-ext="badge"]'), contentPeek.innerHTML);
-if (peekBtn) {
-  peekBtn.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-  await wait(10);
-  assert(
-    "peek shows original while held",
-    !contentPeek.querySelector('[data-latex-ext="badge"]') &&
-      contentPeek.textContent.includes("Φ∩"),
-    contentPeek.textContent
-  );
-  await wait(300);
-  peekBtn.dispatchEvent(new window.Event("pointerup", { bubbles: true }));
-  await wait(10);
-  assert(
-    "peek restores after hold",
-    !!contentPeek.querySelector('[data-latex-ext="badge"]') &&
-      contentPeek.textContent === peekOrig,
-    { badge: !!contentPeek.querySelector('[data-latex-ext="badge"]'), text: contentPeek.textContent }
-  );
-  const clickEv = new window.Event("click", { bubbles: true, cancelable: true });
-  peekBtn.dispatchEvent(clickEv);
-  await wait(10);
-  assert(
-    "click after long peek suppressed",
-    !!contentPeek.querySelector('[data-latex-ext="badge"]'),
-    contentPeek.innerHTML
-  );
-}
+/* ================================================================== *
+ * 8. Structural expectations preserved from the previous suite
+ * ================================================================== */
+assert(
+  "no panel is injected into the search editor",
+  !searchEditor.closest('[class*="searchBar"]').querySelector('[data-latex-ext="panel"]'),
+  searchEditor.closest('[class*="searchBar"]').innerHTML.slice(0, 120)
+);
+assert(
+  "no panel is injected into the modal editor",
+  !modalEditor.closest('[class*="modalForm"]').querySelector('[data-latex-ext="panel"]'),
+  modalEditor.closest('[class*="modalForm"]').innerHTML.slice(0, 120)
+);
+assert(
+  "search editor has no latex-ext panel ancestor",
+  !searchEditor.closest('[data-latex-ext="panel"]'),
+  null
+);
 
-const editTa = document.getElementById("edit-ta");
-if (editTa) {
-  if (window.__latexExtComposerScan) window.__latexExtComposerScan();
-  await wait(30);
-  assert(
-    "edit textarea picked up",
-    editTa._latexExtEditBound === true,
-    editTa._latexExtEditBound
-  );
-}
+const panelNodeBefore = composerPanel;
+const panelParentBefore = composerPanel.parentElement;
+scanComposer();
+scanMessages();
+await wait(20);
+assert(
+  "panel is not moved or recreated on rescan",
+  panelNodeBefore.parentElement === panelParentBefore && panelNodeBefore.isConnected,
+  {
+    parentSame: panelNodeBefore.parentElement === panelParentBefore,
+    connected: panelNodeBefore.isConnected
+  }
+);
 
-setAuto("out");
+const styleBefore = document.getElementById("latex-ext-styles");
+styleBefore.remove();
+scanComposer();
+assert(
+  "stylesheet is re-injected after removal",
+  !!document.getElementById("latex-ext-styles"),
+  null
+);
+
+assert(
+  "stats are shown in the panel title",
+  C.stats.messages > 0 &&
+    composerPanel.querySelector(".latex-ext-title").textContent.includes("·"),
+  { stats: C.stats.messages, title: composerPanel.querySelector(".latex-ext-title").textContent }
+);
+
+// ctrl+shift+L is a no-op while no composer editor exists in the DOM.
+const editorSelector = '[data-slate-editor="true"], [role="textbox"][contenteditable="true"]';
+const editorsBefore = document.querySelectorAll(editorSelector).length;
+const scopes = [...document.querySelectorAll('[class*="channelTextArea"]')];
+const detached = document.createDocumentFragment();
+scopes.forEach((s) => detached.appendChild(s));
+const encodeBeforeNoEditor = C.settings.encode;
+window.dispatchEvent(key("L", { ctrlKey: true, shiftKey: true }));
+assert(
+  "ctrl+shift+L is ignored when no composer editor exists",
+  C.settings.encode === encodeBeforeNoEditor &&
+    editorsBefore > 0 &&
+    document.querySelectorAll(editorSelector).length > 0,
+  {
+    before: encodeBeforeNoEditor,
+    after: C.settings.encode,
+    editorsBefore,
+    editorsNow: document.querySelectorAll(editorSelector).length
+  }
+);
+while (detached.firstChild) document.body.appendChild(detached.firstChild);
+assert(
+  "re-attached composer scopes get their panels back",
+  !!document.querySelector(".channelTextArea__abc [data-latex-ext='panel']"),
+  null
+);
+await wait(20);
 
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
