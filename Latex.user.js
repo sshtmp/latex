@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.4.0
+// @version      1.5.0
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -141,47 +141,17 @@
     return "latin";
   }
 
-  function otherMode(mode) {
-    return mode === "latin" ? "latex" : "latin";
-  }
-
-  function translate(text, fromMode) {
-    return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
-  }
-
-const VERSION = "1.4.0";
+  const VERSION = "1.5.0";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
-    auto: "out",
-    live: true,
-    message: false
+    encode: false,
+    decode: true
   };
 
   const stats = {
     messages: 0
   };
-
-  function setAuto(mode) {
-    if (mode !== "off" && mode !== "in" && mode !== "out" && mode !== "both") return;
-    settings.auto = mode;
-    settings.live = mode === "out" || mode === "both";
-    settings.message = mode === "in" || mode === "both";
-  }
-
-  function cycleAuto(mode) {
-    if (mode === "off") return "in";
-    if (mode === "in") return "out";
-    if (mode === "out") return "both";
-    return "off";
-  }
-
-  function autoLabel(mode) {
-    if (mode === "both") return "Encode and decode";
-    if (mode === "out") return "Encode outgoing only";
-    if (mode === "in") return "Decode incoming only";
-    return "No auto encoding";
-  }
 
   function bumpMessages(n) {
     stats.messages += n == null ? 1 : n;
@@ -194,18 +164,9 @@ const VERSION = "1.4.0";
       const raw = ls.getItem(STORAGE_KEY);
       if (!raw) return;
       const o = JSON.parse(raw);
-      if (o && typeof o === "object") {
-        if (o.auto === "off" || o.auto === "in" || o.auto === "out" || o.auto === "both") {
-          setAuto(o.auto);
-          return;
-        }
-        const live = typeof o.live === "boolean" ? o.live : true;
-        const message = typeof o.message === "boolean" ? o.message : false;
-        if (message && live) setAuto("both");
-        else if (message) setAuto("in");
-        else if (live) setAuto("out");
-        else setAuto("off");
-      }
+      if (!o || typeof o !== "object") return;
+      if (typeof o.encode === "boolean") settings.encode = o.encode;
+      if (typeof o.decode === "boolean") settings.decode = o.decode;
     } catch (_) {}
   }
 
@@ -215,11 +176,7 @@ const VERSION = "1.4.0";
       if (!ls) return;
       ls.setItem(
         STORAGE_KEY,
-        JSON.stringify({
-          auto: settings.auto,
-          live: settings.live,
-          message: settings.message
-        })
+        JSON.stringify({ encode: settings.encode, decode: settings.decode })
       );
     } catch (_) {}
   }
@@ -314,71 +271,8 @@ const VERSION = "1.4.0";
     .latex-ext-btn[data-mode="mixed"] {
       color: #f0b232;
     }
-    .latex-ext-btn[data-state="off"] {
-      color: var(--text-muted, #949ba4);
-    }
-
-    .latex-ext-toggle {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-      height: 24px;
-      padding: 0 8px;
-      border: none;
-      border-radius: 4px;
-      background: transparent;
-      color: var(--interactive-normal, #b5bac1);
-      font-family: var(--font-primary, "gg sans", "Noto Sans", sans-serif);
-      font-size: 12px;
-      font-weight: 600;
-      line-height: 1;
-      letter-spacing: 0.02em;
-      cursor: pointer;
-      user-select: none;
-      white-space: nowrap;
-      flex-shrink: 0;
-      transition: background-color .15s ease, color .15s ease;
-    }
-    .latex-ext-toggle:hover {
-      background: var(--background-modifier-hover, rgba(4, 4, 5, 0.07));
-      color: var(--interactive-hover, #dbdee1);
-    }
-    .latex-ext-toggle:active {
-      background: var(--background-modifier-active, rgba(4, 4, 5, 0.16));
-    }
-    .latex-ext-toggle:focus-visible {
-      outline: 2px solid var(--focus-primary, #00a8fc);
-      outline-offset: 1px;
-    }
-    .latex-ext-toggle[data-mode="disabled"] {
-      color: var(--text-muted, #949ba4);
-    }
-    .latex-ext-toggle[data-mode="disabled"]:hover {
-      color: var(--interactive-hover, #dbdee1);
-      background: var(--background-modifier-hover, rgba(4, 4, 5, 0.07));
-    }
-    .latex-ext-toggle[data-mode="latin"] {
-      color: var(--interactive-normal, #b5bac1);
-    }
-    .latex-ext-toggle[data-mode="latex"] {
+    .latex-ext-btn[data-mode="enabled"] {
       color: var(--text-link, #00a8fc);
-    }
-    .latex-ext-toggle[data-mode="mixed"] {
-      color: #f0b232;
-    }
-    .latex-ext-toggle[data-mode="latex"]:hover {
-      color: var(--text-link, #00a8fc);
-      background: var(--background-modifier-hover, rgba(4, 4, 5, 0.07));
-    }
-
-    .latex-ext-toolbar .latex-ext-toggle {
-      height: 32px;
-      min-width: 32px;
-      padding: 0 16px 0 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
     }
 
     .latex-ext-toolbar .latex-ext-msg-panel {
@@ -427,21 +321,11 @@ const VERSION = "1.4.0";
 
   window.LatexCore = {
     VERSION,
-    MAP,
-    LATEX_CHARS,
-    REVERSE,
     encodeToLatex,
     decodeToLatin,
     detect,
-    otherMode,
-    translate,
     injectStyles,
     notifySettings,
-    loadSettings,
-    saveSettings,
-    setAuto,
-    cycleAuto,
-    autoLabel,
     bumpMessages,
     stats,
     settings,
@@ -458,10 +342,10 @@ const VERSION = "1.4.0";
   const Core = window.LatexCore;
   if (!Core) return;
 
-  const EDITOR_SEL = '[data-slate-editor="true"], [role="textbox"][contenteditable="true"]';
+  const EDITOR_SEL =
+    '[data-slate-editor="true"], [role="textbox"][contenteditable="true"]';
   const SKIP_SEL =
     "[data-slate-spacer], [data-slate-zero-width], [class*='hiddenVisually'], [aria-hidden='true']";
-  const states = new WeakMap();
   let bound = false;
 
   function isComposerEditor(editor) {
@@ -488,13 +372,11 @@ const VERSION = "1.4.0";
   function getComposerText(editor) {
     const clone = editor.cloneNode(true);
 
-    clone
-      .querySelectorAll("img.emoji, [data-type='emoji']")
-      .forEach((el) => {
-        const name =
-          el.getAttribute("data-name") || el.getAttribute("alt") || "";
-        el.replaceWith(document.createTextNode(name));
-      });
+    clone.querySelectorAll("img.emoji, [data-type='emoji']").forEach((el) => {
+      const name =
+        el.getAttribute("data-name") || el.getAttribute("alt") || "";
+      el.replaceWith(document.createTextNode(name));
+    });
 
     clone.querySelectorAll(SKIP_SEL).forEach((el) => el.remove());
 
@@ -531,87 +413,12 @@ const VERSION = "1.4.0";
     const parent = node.parentElement;
     if (!parent) return true;
     if (parent.closest(SKIP_SEL)) return true;
-    if (parent.hasAttribute && parent.hasAttribute("data-slate-zero-width")) {
-      return true;
-    }
     let p = parent;
     while (p && p !== node.ownerDocument) {
       if (p.hasAttribute && p.hasAttribute("data-slate-zero-width")) return true;
       p = p.parentElement;
     }
     return false;
-  }
-
-  function cleanTextLen(s) {
-    return String(s).replace(/\uFEFF/g, "").length;
-  }
-
-  function cleanString(s) {
-    return String(s).replace(/\uFEFF/g, "");
-  }
-
-  function findTextPos(root, targetOffset) {
-    if (targetOffset <= 0) {
-      const firstWalker = document.createTreeWalker(
-        root,
-        NodeFilter.SHOW_TEXT,
-        {
-          acceptNode(node) {
-            return isSkippedTextNode(node)
-              ? NodeFilter.FILTER_REJECT
-              : NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
-      const first = firstWalker.nextNode();
-      return first ? { node: first, offset: 0 } : null;
-    }
-    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        return isSkippedTextNode(node)
-          ? NodeFilter.FILTER_REJECT
-          : NodeFilter.FILTER_ACCEPT;
-      }
-    });
-    let acc = 0;
-    let node;
-    let last = null;
-    while ((node = walker.nextNode())) {
-      last = node;
-      const raw = node.nodeValue || "";
-      const clean = cleanString(raw);
-      const cleanLen = clean.length;
-      if (cleanLen === 0) continue;
-      if (acc + cleanLen >= targetOffset) {
-        const delta = targetOffset - acc;
-        let rawOffset = 0;
-        let seen = 0;
-        while (rawOffset < raw.length && seen < delta) {
-          if (raw[rawOffset] !== "\uFEFF") seen++;
-          rawOffset++;
-        }
-        return { node, offset: rawOffset };
-      }
-      acc += cleanLen;
-    }
-    if (last) {
-      const raw = last.nodeValue || "";
-      let rawOffset = raw.length;
-      while (rawOffset > 0 && raw[rawOffset - 1] === "\uFEFF") rawOffset--;
-      return { node: last, offset: rawOffset };
-    }
-    return null;
-  }
-
-  function displayFor(state) {
-    if (state.mode === "disabled" || !Core.settings.live) return state.original;
-    if (state.mode === "latin") return Core.decodeToLatin(state.original);
-    if (state.mode === "latex") return Core.encodeToLatex(state.original);
-    return state.original;
-  }
-
-  function translateChunk(text, mode) {
-    return mode === "latin" ? Core.decodeToLatin(text) : Core.encodeToLatex(text);
   }
 
   function selectAll(editor) {
@@ -723,16 +530,6 @@ const VERSION = "1.4.0";
     }
   }
 
-  function withApplying(editor, fn) {
-    const st = states.get(editor);
-    if (st) st.applying = true;
-    try {
-      fn();
-    } finally {
-      if (st) st.applying = false;
-    }
-  }
-
   function exec(cmd, value) {
     try {
       if (value === undefined) return document.execCommand(cmd);
@@ -740,28 +537,6 @@ const VERSION = "1.4.0";
     } catch (_) {
       return false;
     }
-  }
-
-  function setComposerText(editor, text) {
-    const clean = sanitizeForEditor(text);
-    if (getComposerTextStrict(editor) === clean) {
-      moveCursorToEnd(editor);
-      return true;
-    }
-
-    editor.focus();
-    let handled = false;
-    withApplying(editor, () => {
-      selectAll(editor);
-      handled = dispatchBeforeInput(editor, "insertText", clean);
-      if (!handled) {
-        selectAll(editor);
-        if (clean === "") exec("delete");
-        else exec("insertText", clean);
-      }
-    });
-    moveCursorToEnd(editor);
-    return getComposerTextStrict(editor) === clean;
   }
 
   function dispatchBeforeInput(editor, inputType, data) {
@@ -781,141 +556,29 @@ const VERSION = "1.4.0";
     return editor.dispatchEvent(ev) === false;
   }
 
-  function trySetInputData(e, value) {
-    try {
-      Object.defineProperty(e, "data", {
-        value,
-        configurable: true,
-        writable: true
-      });
-      if (e.data === value) return true;
-    } catch (_) {}
-    try {
-      e.data = value;
-      if (e.data === value) return true;
-    } catch (_) {}
-    return false;
+  function setComposerText(editor, text) {
+    const clean = sanitizeForEditor(text);
+    if (getComposerTextStrict(editor) === clean) {
+      moveCursorToEnd(editor);
+      return true;
+    }
+
+    editor.focus();
+    selectAll(editor);
+    let handled = dispatchBeforeInput(editor, "insertText", clean);
+    if (!handled) {
+      selectAll(editor);
+      if (clean === "") exec("delete");
+      else exec("insertText", clean);
+    }
+    stripRootOrphansIfStructure(editor);
+    moveCursorToEnd(editor);
+    return getComposerTextStrict(editor) === clean;
   }
 
-  function selectionOffsets(editor) {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) return null;
-    const range = sel.getRangeAt(0);
-    const pre = range.cloneRange();
-    pre.selectNodeContents(editor);
-    pre.setEnd(range.startContainer, range.startOffset);
-    const start = cleanTextLen(pre.toString());
-    const end = start + cleanTextLen(range.toString());
-    return { start, end, collapsed: range.collapsed };
-  }
-
-  function replaceRange(editor, start, end, replacement) {
-    const p1 = findTextPos(editor, start);
-    const p2 = findTextPos(editor, end);
-    if (!p1 || !p2) return false;
-    const range = document.createRange();
-    try {
-      range.setStart(p1.node, p1.offset);
-      range.setEnd(p2.node, p2.offset);
-    } catch (_) {
-      return false;
-    }
-    const sel = window.getSelection();
-    if (!sel) return false;
-    sel.removeAllRanges();
-    sel.addRange(range);
-    withApplying(editor, () => {
-      if (replacement === "") exec("delete");
-      else exec("insertText", sanitizeForEditor(replacement));
-    });
-    return true;
-  }
-
-  function cursorOffsetInEditor(editor) {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount || !editor.contains(sel.anchorNode)) {
-      return getComposerTextStrict(editor).length;
-    }
-    const range = sel.getRangeAt(0);
-    const pre = range.cloneRange();
-    pre.selectNodeContents(editor);
-    pre.setEnd(range.startContainer, range.startOffset);
-    return cleanTextLen(pre.toString());
-  }
-
-  function computeDiff(expected, current) {
-    if (current === expected) return null;
-    if (current.length > expected.length && current.startsWith(expected)) {
-      return {
-        kind: "insert",
-        at: expected.length,
-        text: current.slice(expected.length)
-      };
-    }
-    if (expected.startsWith(current)) {
-      return {
-        kind: "delete",
-        at: current.length,
-        count: expected.length - current.length
-      };
-    }
-    let p = 0;
-    const n = Math.min(expected.length, current.length);
-    while (p < n && expected[p] === current[p]) p++;
-    let eE = expected.length;
-    let eC = current.length;
-    while (eE > p && eC > p && expected[eE - 1] === current[eC - 1]) {
-      eE--;
-      eC--;
-    }
-    if (eE === p) {
-      return { kind: "insert", at: p, text: current.slice(p, eC) };
-    }
-    if (eC === p) {
-      return { kind: "delete", at: p, count: eE - p };
-    }
-    return {
-      kind: "replace",
-      at: p,
-      endExpected: eE,
-      text: current.slice(p, eC)
-    };
-  }
-
-  function applyDiffToOriginal(state, diff) {
-    if (diff.kind === "insert") {
-      state.original =
-        state.original.slice(0, diff.at) +
-        diff.text +
-        state.original.slice(diff.at);
-    } else if (diff.kind === "delete") {
-      state.original =
-        state.original.slice(0, diff.at) +
-        state.original.slice(diff.at + diff.count);
-    } else if (diff.kind === "replace") {
-      const oldLen = diff.endExpected - diff.at;
-      state.original =
-        state.original.slice(0, diff.at) +
-        diff.text +
-        state.original.slice(diff.at + oldLen);
-    }
-  }
-
-  function setEncodingLabel(btn, mode) {
-    btn.dataset.mode = mode;
-    btn.textContent =
-      mode === "latin"
-        ? "Encoding to Latin"
-        : mode === "latex"
-          ? "Encoding to Latex"
-          : "Encoding disabled";
-  }
-
-  function setAutoLabel(btn) {
-    const mode = Core.settings.auto;
-    btn.dataset.state = mode === "off" ? "off" : "on";
-    btn.dataset.auto = mode;
-    btn.textContent = Core.autoLabel(mode);
+  function setLabel(btn, on, label) {
+    btn.dataset.mode = on ? "enabled" : "disabled";
+    btn.textContent = on ? label + " enabled" : label + " disabled";
   }
 
   function setTitleText(panel) {
@@ -926,6 +589,14 @@ const VERSION = "1.4.0";
     title.textContent = t;
   }
 
+  function refreshPanelLabels(panel) {
+    const enc = panel.querySelector('[data-latex-ext="composer"]');
+    const dec = panel.querySelector('[data-latex-ext="decode"]');
+    if (enc) setLabel(enc, Core.settings.encode, "Encoding");
+    if (dec) setLabel(dec, Core.settings.decode, "Decoding");
+    setTitleText(panel);
+  }
+
   function refreshAllPanels() {
     document
       .querySelectorAll('[data-latex-ext="panel"]')
@@ -933,397 +604,67 @@ const VERSION = "1.4.0";
   }
   window.__latexExtBulkRefresh = refreshAllPanels;
 
-  function refreshPanelLabels(panel) {
-    const editor = panel._latexEditor;
-    const state = editor ? states.get(editor) : null;
-    const enc = panel.querySelector('[data-latex-ext="composer"]');
-    const auto = panel.querySelector('[data-latex-ext="auto"]');
-    if (enc) setEncodingLabel(enc, state ? state.mode : "disabled");
-    if (auto) setAutoLabel(auto);
-    setTitleText(panel);
-  }
-
-  function getState(editor) {
-    let s = states.get(editor);
-    if (!s) {
-      s = {
-        mode: "disabled",
-        original: getComposerTextStrict(editor),
-        applying: false,
-        sending: false,
-        pendingSend: false,
-        pasteRaw: null
-      };
-      states.set(editor, s);
-    }
-    return s;
-  }
-
-  function cycleMode(mode) {
-    if (mode === "disabled") return "latin";
-    if (mode === "latin") return "latex";
-    return "disabled";
-  }
-
-  function handleToggle(editor, btn) {
-    const state = getState(editor);
-    if (placeholderVisible(editor)) {
-      stripRootOrphans(editor);
-      state.original = "";
-      state.sending = false;
-      state.pendingSend = false;
-    } else {
-      const currentBefore = getComposerTextStrict(editor);
-      if (currentBefore === "") {
-        state.original = "";
-        state.sending = false;
-        state.pendingSend = false;
-      } else if (state.mode === "disabled" || !Core.settings.live) {
-        state.original = currentBefore;
-      }
-    }
-    state.mode = cycleMode(state.mode);
-    setEncodingLabel(btn, state.mode);
-
-    const display = displayFor(state);
-    const current = getComposerTextStrict(editor);
-    if (display === current) return;
-    setComposerText(editor, display);
-  }
-
-  function recoverOriginal(state, current) {
-    if (state.mode === "latex") return Core.decodeToLatin(current);
-    return current;
-  }
-
-  function handleAutoToggle() {
-    const next = Core.cycleAuto(Core.settings.auto);
-    const wasLive = Core.settings.live;
-    const willLive = next === "out" || next === "both";
-
-    if (wasLive !== willLive) {
-      document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
-        const state = states.get(editor);
-        if (!state) return;
-        if (syncIfEmpty(editor, state)) return;
-        const current = getComposerTextStrict(editor);
-        if (!current) {
-          state.sending = false;
-          state.pendingSend = false;
-          return;
-        }
-        const wasSending = state.sending || state.pendingSend;
-        state.sending = false;
-        state.pendingSend = false;
-        if (!wasLive) {
-          if (!wasSending) state.original = current;
-        } else {
-          const expected = displayFor(state);
-          if (current !== expected) {
-            state.original = recoverOriginal(state, current);
-          }
-        }
-      });
-    }
-
-    Core.setAuto(next);
-
-    if (wasLive !== willLive) {
-      document.querySelectorAll(EDITOR_SEL).forEach((editor) => {
-        const state = states.get(editor);
-        if (!state) return;
-        if (syncIfEmpty(editor, state)) return;
-        const display = displayFor(state);
-        const current = getComposerTextStrict(editor);
-        if (display !== current) setComposerText(editor, display);
-      });
-    }
-
+  function toggleEncode() {
+    Core.settings.encode = !Core.settings.encode;
     refreshAllPanels();
     Core.notifySettings();
   }
 
-  function prepareSend(editor, state) {
-    if (state.mode === "disabled" || Core.settings.live) return;
+  function toggleDecode() {
+    Core.settings.decode = !Core.settings.decode;
+    refreshAllPanels();
+    Core.notifySettings();
+  }
+
+  function prepareSend(editor) {
+    if (!Core.settings.encode) return;
     const raw = getComposerTextStrict(editor);
-    if (!raw) {
-      state.original = "";
-      return;
-    }
-    const target =
-      state.mode === "latin" ? Core.decodeToLatin(raw) : Core.encodeToLatex(raw);
+    if (!raw) return;
+    const target = Core.encodeToLatex(raw);
     if (raw === target) return;
-    state.original = raw;
-    state.sending = true;
+    if (!setComposerText(editor, target)) return;
     Core.bumpMessages(1);
     refreshAllPanels();
-    setComposerText(editor, target);
   }
 
-  function scheduleSendClear(editor, state) {
-    state.pendingSend = true;
-    const tryClear = () => clearCacheIfEmpty(editor, state);
-    tryClear();
-    [0, 50, 150, 400, 800].forEach((ms) => setTimeout(tryClear, ms));
+  function clearAfterSend(editor) {
+    if (placeholderVisible(editor)) stripRootOrphans(editor);
   }
 
-  function syncOriginalOnly(editor, state) {
-    if (state.applying || state.mode === "disabled") return;
-    const expected = displayFor(state);
-    const current = getComposerTextStrict(editor);
-    if (current === expected) return;
-    const diff = computeDiff(expected, current);
-    if (!diff) return;
-    applyDiffToOriginal(state, diff);
+  function scheduleSendClear(editor) {
+    [0, 50, 150, 400, 800].forEach((ms) => setTimeout(() => {
+      if (editor.isConnected) clearAfterSend(editor);
+    }, ms));
   }
 
-  function scheduleOriginalSync(editor, state) {
-    setTimeout(() => syncOriginalOnly(editor, state), 0);
-  }
-
-  function insertRangeInOriginal(state, start, end, rawText) {
-    state.original =
-      state.original.slice(0, start) + rawText + state.original.slice(end);
-  }
-
-  function handleBeforeInput(e) {
-    const editor = editorFromTarget(e.target);
-    if (!editor) return;
-    const state = states.get(editor);
-    if (!state || state.applying) return;
-    state.sending = false;
-    if (state.mode === "disabled" || !Core.settings.live) return;
-
-    const t = e.inputType || "";
-    if (e.isComposing || t === "insertCompositionText") return;
-
-    if (t === "insertText" && e.data != null) {
-      const raw = e.data;
-      const selOff = selectionOffsets(editor);
-      const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
-      const end = selOff && !selOff.collapsed ? selOff.end : start;
-      insertRangeInOriginal(state, start, end, raw);
-      const translated = translateChunk(raw, state.mode);
-      if (translated !== raw && !trySetInputData(e, translated)) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        if (dispatchBeforeInput(editor, "insertText", translated)) {
-          withApplying(editor, () => {
-            exec("insertText", translated);
-          });
-        }
-      }
-      return;
+  function composerEditor() {
+    let editor = editorFromTarget(document.activeElement);
+    if (!editor || !isComposerEditor(editor)) {
+      editor = null;
+      document.querySelectorAll(EDITOR_SEL).forEach((ed) => {
+        if (!editor && isComposerEditor(ed)) editor = ed;
+      });
     }
-
-    if (t === "insertLineBreak" || t === "insertParagraph") {
-      const selOff = selectionOffsets(editor);
-      const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
-      const end = selOff && !selOff.collapsed ? selOff.end : start;
-      insertRangeInOriginal(state, start, end, "\n");
-      return;
-    }
-
-    if (t === "insertFromPaste" || t === "insertFromDrop") {
-      let pasted = "";
-      try {
-        pasted = e.dataTransfer ? e.dataTransfer.getData("text/plain") : "";
-      } catch (_) {}
-      if (!pasted && typeof e.data === "string") pasted = e.data;
-
-      const rawFromPaste = state.pasteRaw;
-      state.pasteRaw = null;
-      clearTimeout(state.pasteRawTimer);
-
-      const raw = rawFromPaste || pasted;
-      if (!raw) return;
-
-      if (!rawFromPaste) {
-        const sel0 = selectionOffsets(editor);
-        const start0 = sel0 ? sel0.start : cursorOffsetInEditor(editor);
-        const end0 = sel0 && !sel0.collapsed ? sel0.end : start0;
-        insertRangeInOriginal(state, start0, end0, raw);
-      }
-
-      const translated = translateChunk(raw, state.mode);
-      if (pasted === translated) return;
-
-      if (e.dataTransfer) {
-        try {
-          e.dataTransfer.setData("text/plain", translated);
-        } catch (_) {}
-      }
-      if (trySetInputData(e, translated)) return;
-      try {
-        if (
-          e.dataTransfer &&
-          e.dataTransfer.getData("text/plain") === translated
-        ) {
-          return;
-        }
-      } catch (_) {}
-
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      const selOff = selectionOffsets(editor);
-      const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
-      const end = selOff && !selOff.collapsed ? selOff.end : start;
-      replaceRange(editor, start, end, translated);
-      return;
-    }
-
-    if (t.startsWith("delete") || t.startsWith("history")) {
-      scheduleOriginalSync(editor, state);
-    }
-  }
-
-  function handlePaste(e) {
-    const editor = editorFromTarget(e.target);
-    if (!editor) return;
-    const state = states.get(editor);
-    if (!state || state.applying || state.mode === "disabled") return;
-    if (!Core.settings.live) return;
-
-    const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
-    if (!text) return;
-
-    state.pasteRaw = text;
-    clearTimeout(state.pasteRawTimer);
-    state.pasteRawTimer = setTimeout(() => {
-      state.pasteRaw = null;
-    }, 500);
-
-    const selOff = selectionOffsets(editor);
-    const start = selOff ? selOff.start : cursorOffsetInEditor(editor);
-    const end = selOff && !selOff.collapsed ? selOff.end : start;
-    insertRangeInOriginal(state, start, end, text);
-
-    const translated = translateChunk(text, state.mode);
-    if (translated !== text && e.clipboardData) {
-      try {
-        e.clipboardData.setData("text/plain", translated);
-      } catch (_) {}
-    }
-  }
-
-  function clearCacheIfEmpty(editor, state) {
-    if (placeholderVisible(editor)) {
-      stripRootOrphans(editor);
-      state.original = "";
-      state.sending = false;
-      state.pendingSend = false;
-      return;
-    }
-    if (getComposerTextStrict(editor) === "") {
-      state.original = "";
-      state.sending = false;
-      state.pendingSend = false;
-    }
-  }
-
-  function syncIfEmpty(editor, state) {
-    if (placeholderVisible(editor)) {
-      stripRootOrphans(editor);
-      state.original = "";
-      state.sending = false;
-      state.pendingSend = false;
-      return true;
-    }
-    if (getComposerTextStrict(editor) === "") {
-      state.original = "";
-      state.sending = false;
-      state.pendingSend = false;
-      return true;
-    }
-    return false;
-  }
-
-  function onEditorInput(editor, state) {
-    if (state.applying) return;
-
-    if (syncIfEmpty(editor, state)) return;
-
-    if (state.sending) return;
-
-    stripRootOrphansIfStructure(editor);
-
-    if (state.mode === "disabled" || !Core.settings.live) {
-      state.original = getComposerTextStrict(editor);
-      return;
-    }
-
-    const expected = displayFor(state);
-    const current = getComposerTextStrict(editor);
-    if (current === expected) return;
-
-    const diff = computeDiff(expected, current);
-    if (!diff) return;
-
-    if (diff.kind === "delete") {
-      applyDiffToOriginal(state, diff);
-      return;
-    }
-
-    applyDiffToOriginal(state, diff);
-    const replacement = translateChunk(diff.text, state.mode);
-    replaceRange(editor, diff.at, diff.at + diff.text.length, replacement);
-  }
-
-  function prepareSendFromEvent(e) {
-    const editor = editorFromTarget(e.target);
-    if (!editor) return;
-    const state = states.get(editor);
-    if (!state || state.applying) return;
-    prepareSend(editor, state);
-  }
-
-  function onCompositionEnd(e) {
-    const editor = editorFromTarget(e.target);
-    if (!editor) return;
-    const state = states.get(editor);
-    if (!state || state.applying) return;
-    if (state.mode === "disabled" || !Core.settings.live) {
-      state.original = getComposerTextStrict(editor);
-      return;
-    }
-    const current = getComposerTextStrict(editor);
-    if (!current) {
-      state.original = "";
-      return;
-    }
-    state.original = recoverOriginal(state, current);
-    const display = displayFor(state);
-    if (display !== current) setComposerText(editor, display);
+    return editor;
   }
 
   function bindGlobal() {
     if (bound) return;
     bound = true;
-    window.addEventListener("beforeinput", handleBeforeInput, true);
-    window.addEventListener("paste", handlePaste, true);
-    window.addEventListener("compositionend", onCompositionEnd, true);
-    window.addEventListener("keydown", (e) => {
-      if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
-      const k = e.key || "";
-      if (k !== "L" && k !== "l") return;
-      e.preventDefault();
-      let editor = editorFromTarget(document.activeElement);
-      if (!editor || !isComposerEditor(editor)) {
-        editor = null;
-        document.querySelectorAll(EDITOR_SEL).forEach((ed) => {
-          if (!editor && isComposerEditor(ed)) editor = ed;
-        });
-      }
-      if (!editor) return;
-      let encBtn = null;
-      document.querySelectorAll('[data-latex-ext="panel"]').forEach((p) => {
-        if (p._latexEditor === editor) {
-          encBtn = p.querySelector('[data-latex-ext="composer"]');
-        }
-      });
-      if (!encBtn) encBtn = document.querySelector('[data-latex-ext="composer"]');
-      if (encBtn) handleToggle(editor, encBtn);
-    });
+
+    window.addEventListener(
+      "keydown",
+      (e) => {
+        if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
+        const k = e.key || "";
+        if (k !== "L" && k !== "l") return;
+        if (!composerEditor()) return;
+        e.preventDefault();
+        toggleEncode();
+      },
+      true
+    );
+
     window.addEventListener(
       "keydown",
       (e) => {
@@ -1336,19 +677,14 @@ const VERSION = "1.4.0";
         ) {
           return;
         }
-        prepareSendFromEvent(e);
         const editor = editorFromTarget(e.target);
-        if (!editor) return;
-        const state = states.get(editor);
-        if (!state) return;
-        if (getComposerTextStrict(editor) !== "") {
-          scheduleSendClear(editor, state);
-        } else {
-          clearCacheIfEmpty(editor, state);
-        }
+        if (!editor || !isComposerEditor(editor)) return;
+        prepareSend(editor);
+        scheduleSendClear(editor);
       },
       true
     );
+
     window.addEventListener(
       "mousedown",
       (e) => {
@@ -1365,12 +701,20 @@ const VERSION = "1.4.0";
         const scope =
           btn.closest("form") || btn.closest('[class*="channelTextArea"]');
         const editor = scope && scope.querySelector(EDITOR_SEL);
-        if (!editor) return;
-        const state = states.get(editor);
-        if (state) prepareSend(editor, state);
+        if (!editor || !isComposerEditor(editor)) return;
+        prepareSend(editor);
+        scheduleSendClear(editor);
       },
       true
     );
+  }
+
+  function attachToggle(btn, onClick) {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      onClick();
+    });
   }
 
   function ensurePanel(editor) {
@@ -1381,9 +725,6 @@ const VERSION = "1.4.0";
 
     bindGlobal();
 
-    const state = getState(editor);
-    if (state.pendingSend || state.sending) clearCacheIfEmpty(editor, state);
-
     let panel = host.querySelector('[data-latex-ext="panel"]');
     if (panel && panel._latexEditor === editor) {
       if (!host.contains(panel)) host.prepend(panel);
@@ -1392,7 +733,9 @@ const VERSION = "1.4.0";
     }
     if (panel) panel.remove();
     host
-      .querySelectorAll(':scope > [data-latex-ext="composer"]')
+      .querySelectorAll(
+        ':scope > [data-latex-ext="composer"], :scope > [data-latex-ext="decode"]'
+      )
       .forEach((b) => b.remove());
 
     panel = document.createElement("div");
@@ -1409,152 +752,28 @@ const VERSION = "1.4.0";
     encBtn.type = "button";
     encBtn.className = "latex-ext-btn";
     encBtn.dataset.latexExt = "composer";
-    encBtn.title = "Cycle encoding mode (Ctrl+Shift+L)";
-    encBtn.setAttribute("aria-label", "Cycle encoding mode");
-    encBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleToggle(editor, encBtn);
-    });
+    encBtn.title = "Encode outgoing messages to Latex when sent (Ctrl+Shift+L)";
+    encBtn.setAttribute("aria-label", "Toggle encoding");
+    attachToggle(encBtn, toggleEncode);
     panel.appendChild(encBtn);
 
-    const autoBtn = document.createElement("button");
-    autoBtn.type = "button";
-    autoBtn.className = "latex-ext-btn";
-    autoBtn.dataset.latexExt = "auto";
-    autoBtn.title =
-      "Automatic encoding: off, decode incoming, encode outgoing, or both";
-    autoBtn.setAttribute(
-      "aria-label",
-      "Automatic encoding mode: off, decode incoming, encode outgoing, or both"
-    );
-    autoBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      handleAutoToggle();
-    });
-    panel.appendChild(autoBtn);
+    const decBtn = document.createElement("button");
+    decBtn.type = "button";
+    decBtn.className = "latex-ext-btn";
+    decBtn.dataset.latexExt = "decode";
+    decBtn.title = "Decode incoming messages automatically";
+    decBtn.setAttribute("aria-label", "Toggle decoding");
+    attachToggle(decBtn, toggleDecode);
+    panel.appendChild(decBtn);
 
     refreshPanelLabels(panel);
-
-    if (!editor._latexExtBound) {
-      editor._latexExtBound = true;
-      editor.addEventListener("input", () => {
-        const st = states.get(editor);
-        if (st) onEditorInput(editor, st);
-      });
-
-      const form = editor.closest("form");
-      if (form && !form._latexExtBound) {
-        form._latexExtBound = true;
-        form.addEventListener("submit", () => {
-          const st = states.get(editor);
-          if (st) setTimeout(() => clearCacheIfEmpty(editor, st), 0);
-        });
-      }
-    }
-
     host.prepend(panel);
   }
 
   function scan() {
     Core.injectStyles(Core.BUTTON_CSS);
     document.querySelectorAll(EDITOR_SEL).forEach(ensurePanel);
-    ensureEditEditors();
     refreshAllPanels();
-  }
-
-  function isEditEditor(el) {
-    if (!el || el.nodeType !== 1) return false;
-    if (el.closest('[class*="channelTextArea"]')) return false;
-    if (el.closest('[class*="editing"]')) return true;
-    return false;
-  }
-
-  function ensureEditEditors() {
-    const sel =
-      'textarea, [contenteditable="true"][role="textbox"], [data-slate-editor="true"]';
-    document.querySelectorAll(sel).forEach((ed) => {
-      if (!isEditEditor(ed)) return;
-
-      const li = ed.closest('[id^="chat-messages-"]');
-      const mst =
-        li && window.__latexExtMsgState ? window.__latexExtMsgState(li) : null;
-      let mode = "disabled";
-      if (mst && mst.displayMode === "latex") mode = "latex";
-      else if (mst && mst.displayMode === "latin") mode = "latin";
-
-      const read = () =>
-        ed.tagName === "TEXTAREA" ? ed.value : getComposerTextStrict(ed);
-      const write = (v) => {
-        if (ed.tagName === "TEXTAREA") ed.value = v;
-        else setComposerText(ed, v);
-      };
-
-      if (ed._latexExtEditBound) {
-        const st = states.get(ed);
-        if (!st) return;
-        const wasMode = st.mode;
-        st.mode = mode;
-        if (mode !== "disabled" && wasMode === "disabled") {
-          st.original = read();
-          const display = displayFor(st);
-          if (display !== st.original) write(display);
-        }
-        return;
-      }
-
-      ed._latexExtEditBound = true;
-      const state = {
-        mode,
-        original: read(),
-        applying: false,
-        sending: false,
-        pendingSend: false,
-        pasteRaw: null
-      };
-      states.set(ed, state);
-      if (mode !== "disabled") {
-        const display = displayFor(state);
-        if (display !== state.original) write(display);
-      }
-
-      if (!ed._latexExtBound) {
-        ed._latexExtBound = true;
-        if (ed.tagName !== "TEXTAREA") {
-          ed.addEventListener("input", () => {
-            const st = states.get(ed);
-            if (st) onEditorInput(ed, st);
-          });
-        } else {
-          ed.addEventListener("input", () => {
-            const st = states.get(ed);
-            if (!st || st.applying || st.mode === "disabled") return;
-            if (!Core.settings.live) {
-              st.original = ed.value;
-              return;
-            }
-            const expected = displayFor(st);
-            const current = ed.value;
-            if (current === expected) return;
-            const diff = computeDiff(expected, current);
-            if (!diff) return;
-            applyDiffToOriginal(st, diff);
-            if (diff.kind === "delete") return;
-            const next = displayFor(st);
-            if (next !== current) {
-              st.applying = true;
-              const pos = ed.selectionStart;
-              ed.value = next;
-              try {
-                ed.setSelectionRange(pos, pos);
-              } catch (_) {}
-              st.applying = false;
-            }
-          });
-        }
-      }
-    });
   }
 
   let scheduled = false;
@@ -1618,9 +837,7 @@ const VERSION = "1.4.0";
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
   const states = new Map();
-  let lastMessageFlag = !!Core.settings.message;
-
-  window.__latexExtMsgState = stateFor;
+  let lastDecode = !!Core.settings.decode;
 
   function stateFor(li) {
     return states.get(li.id);
@@ -1637,6 +854,32 @@ const VERSION = "1.4.0";
       states.set(li.id, st);
     }
     return st;
+  }
+
+  function newState() {
+    return {
+      manual: false,
+      baseText: null,
+      appliedText: null,
+      source: null,
+      target: null,
+      peeking: false
+    };
+  }
+
+  function rebase(st, text) {
+    st.baseText = text;
+    st.appliedText = null;
+    st.source = null;
+    st.target = null;
+    st.peeking = false;
+  }
+
+  function clearApplied(st) {
+    st.appliedText = null;
+    st.source = null;
+    st.target = null;
+    st.peeking = false;
   }
 
   function pruneStates() {
@@ -1715,11 +958,26 @@ const VERSION = "1.4.0";
     return nodes;
   }
 
-  function combinedText(li) {
+  function snapshot(li) {
     const nodes = collectTextNodes(collectTranslatableRoots(li));
-    let s = "";
-    for (const n of nodes) s += n.nodeValue;
-    return s;
+    return { nodes, text: nodes.map((n) => n.nodeValue).join("") };
+  }
+
+  function canMap(st) {
+    return (
+      st.baseText != null &&
+      st.appliedText != null &&
+      st.baseText.length === st.appliedText.length
+    );
+  }
+
+  function writeNodes(nodes, text) {
+    let at = 0;
+    for (const n of nodes) {
+      const len = (n.nodeValue || "").length;
+      n.nodeValue = text.slice(at, at + len);
+      at += len;
+    }
   }
 
   function setButtonMode(btn, mode) {
@@ -1729,23 +987,11 @@ const VERSION = "1.4.0";
     else btn.textContent = "Latin";
   }
 
-  function newState() {
-    return {
-      saved: null,
-      applied: null,
-      baseSaved: null,
-      manual: false,
-      origDetect: null,
-      displayMode: null,
-      peeking: false
-    };
-  }
-
   function findMsgPanel(li) {
     return li.querySelector('[data-latex-ext="msg-panel"]');
   }
 
-  function placePanel(panel, btn, sep, container) {
+  function placePanel(panel, sep, container) {
     if (!container.contains(panel)) container.prepend(panel);
     if (!sep) {
       sep = document.createElement("div");
@@ -1756,16 +1002,15 @@ const VERSION = "1.4.0";
     if (sep.parentNode !== container || panel.nextSibling !== sep) {
       container.insertBefore(sep, panel.nextSibling);
     }
-    void btn;
   }
 
   function refreshLabel(li, btn) {
     const st = stateFor(li);
-    if (st && st.saved && st.displayMode) {
-      setButtonMode(btn, st.displayMode);
+    if (st && st.target && st.appliedText != null) {
+      setButtonMode(btn, st.target);
       return;
     }
-    setButtonMode(btn, Core.detect(combinedText(li)));
+    setButtonMode(btn, Core.detect(snapshot(li).text));
   }
 
   function badgeHost(li) {
@@ -1801,200 +1046,113 @@ const VERSION = "1.4.0";
     }
   }
 
-  function nodesMatch(nodes, arr) {
-    return (
-      arr &&
-      nodes.length === arr.length &&
-      nodes.every((n, i) => n.nodeValue === arr[i])
-    );
-  }
+  function applyTransform(li, btn, target, source) {
+    const { nodes, text } = snapshot(li);
+    if (!text.trim()) return null;
 
-  function applyTransform(li, btn, toMode, origDetect) {
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
-    const raw = nodes.map((n) => n.nodeValue).join("");
-    const source = origDetect || Core.detect(raw);
-    const target = toMode || (source === "latin" ? "latex" : "latin");
+    const st = ensureState(li);
+    const showingApplied = st.appliedText != null && text === st.appliedText;
+    if (!showingApplied && text !== st.baseText) rebase(st, text);
+
     const fn = target === "latex" ? Core.encodeToLatex : Core.decodeToLatin;
-    const state = ensureState(li);
-    if (!state.baseSaved) {
-      state.baseSaved = nodes.map((n) => n.nodeValue);
-    }
-    state.saved = nodes.map((n) => n.nodeValue);
     for (const n of nodes) n.nodeValue = fn(n.nodeValue);
-    state.applied = nodes.map((n) => n.nodeValue);
-    state.origDetect = source;
-    state.displayMode = target;
-    setStateFor(li, state);
+
+    st.appliedText = nodes.map((n) => n.nodeValue).join("");
+    st.source = source;
+    st.target = target;
+    st.peeking = false;
+    setStateFor(li, st);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
     Core.bumpMessages(1);
     if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
-    return state;
+    return st;
   }
 
-  function restoreBase(li, btn) {
-    const state = stateFor(li);
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
-    const src = state && state.baseSaved;
-    if (src && nodes.length === src.length) {
-      nodes.forEach((n, i) => {
-        n.nodeValue = src[i];
-      });
+  function restore(li, btn) {
+    const st = stateFor(li);
+    if (!st || st.appliedText == null) return false;
+    const { nodes, text } = snapshot(li);
+
+    if (text === st.appliedText && canMap(st)) {
+      writeNodes(nodes, st.baseText);
+    } else if (text !== st.baseText) {
+      rebase(st, text);
+      ensureBadge(li, null);
+      if (btn) refreshLabel(li, btn);
+      return true;
     }
-    if (state) {
-      state.saved = null;
-      state.applied = null;
-      state.baseSaved = null;
-      state.origDetect = null;
-      state.displayMode = null;
-      setStateFor(li, state);
-    }
+
+    clearApplied(st);
+    setStateFor(li, st);
     ensureBadge(li, null);
     if (btn) refreshLabel(li, btn);
-  }
-
-  function isShowingApplied(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied) return false;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    return nodesMatch(nodes, state.applied);
-  }
-
-  function reconcile(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied || state.peeking) return;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    if (nodesMatch(nodes, state.applied)) return;
-    if (state.baseSaved && nodesMatch(nodes, state.baseSaved)) {
-      state.applied = null;
-      state.saved = null;
-      state.baseSaved = null;
-      state.origDetect = null;
-      state.displayMode = null;
-      setStateFor(li, state);
-      ensureBadge(li, null);
-      return;
-    }
-    setStateFor(li, newState());
-    ensureBadge(li, null);
+    return true;
   }
 
   function showBase(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied || !state.baseSaved) return false;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    if (nodes.length !== state.baseSaved.length) return false;
-    nodes.forEach((n, i) => {
-      n.nodeValue = state.baseSaved[i];
-    });
-    state.peeking = true;
+    const st = stateFor(li);
+    if (!st || st.appliedText == null || st.peeking || !canMap(st)) return false;
+    const { nodes, text } = snapshot(li);
+    if (text !== st.appliedText) return false;
+    writeNodes(nodes, st.baseText);
+    st.peeking = true;
     ensureBadge(li, null);
     return true;
   }
 
   function reapply(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied || !state.peeking) return;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    if (nodes.length !== state.applied.length) return;
-    nodes.forEach((n, i) => {
-      n.nodeValue = state.applied[i];
-    });
-    state.peeking = false;
-    ensureBadge(li, state.origDetect);
-  }
-
-  function attachPeek(btn, li) {
-    if (btn._latexExtPeekBound) return;
-    btn._latexExtPeekBound = true;
-    let peekStart = 0;
-    let suppressClick = false;
-    btn.addEventListener("pointerdown", () => {
-      const st = stateFor(li);
-      if (st && st.applied && !st.peeking) {
-        peekStart = Date.now();
-        showBase(li);
-      }
-    });
-    const endPeek = () => {
-      const st = stateFor(li);
-      if (!st || !st.peeking) return;
-      const held = Date.now() - peekStart;
-      reapply(li);
-      if (held >= 250) suppressClick = true;
-      peekStart = 0;
-    };
-    btn.addEventListener("pointerup", endPeek);
-    btn.addEventListener("pointerleave", endPeek);
-    btn.addEventListener("click", (e) => {
-      if (suppressClick) {
-        suppressClick = false;
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }, true);
+    const st = stateFor(li);
+    if (!st || !st.peeking) return;
+    st.peeking = false;
+    if (st.appliedText == null || !canMap(st)) return;
+    const { nodes, text } = snapshot(li);
+    if (text !== st.baseText) return;
+    writeNodes(nodes, st.appliedText);
+    ensureBadge(li, st.source);
   }
 
   function handleToggle(li, btn) {
-    const state = ensureState(li);
-    const wasManual = state.manual;
-    state.manual = true;
-    setStateFor(li, state);
+    const st = ensureState(li);
+    st.manual = true;
+    setStateFor(li, st);
 
-    if (isShowingApplied(li)) {
-      if (!wasManual) {
-        restoreBase(li, btn);
-        const st = stateFor(li);
-        if (st) {
-          st.manual = true;
-          setStateFor(li, st);
-        }
+    const { text } = snapshot(li);
+    if (!text.trim()) return;
+
+    const showingApplied = st.appliedText != null && text === st.appliedText;
+    if (showingApplied) {
+      if (st.target === "latin" && st.source === "mixed") {
+        applyTransform(li, btn, "latex", st.source);
         return;
       }
-      if (state.origDetect === "mixed" && state.displayMode === "latin") {
-        applyTransform(li, btn, "latex", "mixed");
-        return;
-      }
-      restoreBase(li, btn);
+      restore(li, btn);
       return;
     }
 
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
-    const raw = nodes.map((n) => n.nodeValue).join("");
-    const detected = Core.detect(raw);
-
-    if (detected === "mixed") {
-      applyTransform(li, btn, "latin", "mixed");
-    } else if (detected === "latex") {
-      applyTransform(li, btn, "latin", "latex");
-    } else {
-      applyTransform(li, btn, "latex", "latin");
-    }
+    const detected = Core.detect(text);
+    if (detected === "latin") applyTransform(li, btn, "latex", "latin");
+    else applyTransform(li, btn, "latin", detected);
   }
 
   function maybeAutoTranslate(li) {
-    if (!Core.settings.message) return;
-    const state = stateFor(li);
-    if (state && (state.manual || state.saved)) return;
-    const raw = combinedText(li);
-    if (!raw.trim()) return;
-    const d = Core.detect(raw);
-    if (d === "latin") return;
-    const btn = li.querySelector('[data-latex-ext="msg"]');
-    applyTransform(li, btn, "latin", d);
+    if (!Core.settings.decode) return;
+    const st = stateFor(li);
+    if (st && (st.manual || st.peeking)) return;
+
+    const { text } = snapshot(li);
+    if (!text.trim()) return;
+    if (st && st.appliedText != null && text === st.appliedText) return;
+
+    const detected = Core.detect(text);
+    if (detected === "latin") return;
+    applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", detected);
   }
 
   function resetMessageDefaults() {
     document.querySelectorAll(MSG_SEL).forEach((li) => {
-      const state = stateFor(li);
-      if (state && (state.saved || state.applied || state.baseSaved)) {
-        restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
-      }
-      const st = newState();
-      setStateFor(li, st);
+      restore(li, li.querySelector('[data-latex-ext="msg"]'));
+      setStateFor(li, newState());
       ensureBadge(li, null);
       const btn = li.querySelector('[data-latex-ext="msg"]');
       if (btn) refreshLabel(li, btn);
@@ -2012,9 +1170,8 @@ const VERSION = "1.4.0";
     let sep = container.querySelector('[data-latex-ext="sep"]');
 
     if (panel && btn) {
-      placePanel(panel, btn, sep, container);
-      const st = stateFor(li);
-      if (!(st && st.saved)) refreshLabel(li, btn);
+      placePanel(panel, sep, container);
+      refreshLabel(li, btn);
       reconcile(li);
       return;
     }
@@ -2038,13 +1195,17 @@ const VERSION = "1.4.0";
     btn.dataset.latexExt = "msg";
     btn.title = "Cycle message encoding: Mixed, Latin, Latex";
     btn.setAttribute("aria-label", "Cycle message encoding: Mixed, Latin, Latex");
-    setButtonMode(btn, Core.detect(combinedText(li)));
+    setButtonMode(btn, Core.detect(snapshot(li).text));
+    attachPeek(btn, li);
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (btn._suppressClick) {
+        btn._suppressClick = false;
+        return;
+      }
       handleToggle(li, btn);
     });
-    attachPeek(btn, li);
     panel.appendChild(btn);
 
     sep = document.createElement("div");
@@ -2057,6 +1218,41 @@ const VERSION = "1.4.0";
     ensureState(li);
   }
 
+  function attachPeek(btn, li) {
+    if (btn._latexExtPeekBound) return;
+    btn._latexExtPeekBound = true;
+    let peekStart = 0;
+
+    btn.addEventListener("pointerdown", () => {
+      btn._suppressClick = false;
+      peekStart = 0;
+      if (showBase(li)) peekStart = Date.now();
+    });
+
+    const endPeek = () => {
+      const st = stateFor(li);
+      if (!st || !st.peeking) return;
+      const held = peekStart ? Date.now() - peekStart : 0;
+      reapply(li);
+      if (held >= 250) btn._suppressClick = true;
+      peekStart = 0;
+    };
+    btn.addEventListener("pointerup", endPeek);
+    btn.addEventListener("pointerleave", endPeek);
+  }
+
+  function reconcile(li) {
+    const st = stateFor(li);
+    if (!st) return;
+    const { text } = snapshot(li);
+    if (st.appliedText != null && text === st.appliedText) return;
+    if (st.baseText != null && text === st.baseText) return;
+    rebase(st, text);
+    st.manual = false;
+    setStateFor(li, st);
+    ensureBadge(li, null);
+  }
+
   function scan() {
     Core.injectStyles(Core.BUTTON_CSS);
     pruneStates();
@@ -2065,17 +1261,13 @@ const VERSION = "1.4.0";
       reconcile(li);
       maybeAutoTranslate(li);
       const btn = li.querySelector('[data-latex-ext="msg"]');
-      const st = stateFor(li);
-      if (btn && !(st && st.saved)) refreshLabel(li, btn);
+      if (btn) refreshLabel(li, btn);
     });
   }
 
   function onSettingsChanged() {
-    const messageFlag = !!Core.settings.message;
-    if (messageFlag !== lastMessageFlag) {
-      lastMessageFlag = messageFlag;
-      resetMessageDefaults();
-    }
+    if (!Core.settings.decode && lastDecode) resetMessageDefaults();
+    lastDecode = !!Core.settings.decode;
     scheduleScan();
   }
 

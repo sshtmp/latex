@@ -12,9 +12,7 @@
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
   const states = new Map();
-  let lastMessageFlag = !!Core.settings.message;
-
-  window.__latexExtMsgState = stateFor;
+  let lastDecode = !!Core.settings.decode;
 
   function stateFor(li) {
     return states.get(li.id);
@@ -31,6 +29,32 @@
       states.set(li.id, st);
     }
     return st;
+  }
+
+  function newState() {
+    return {
+      manual: false,
+      baseText: null,
+      appliedText: null,
+      source: null,
+      target: null,
+      peeking: false
+    };
+  }
+
+  function rebase(st, text) {
+    st.baseText = text;
+    st.appliedText = null;
+    st.source = null;
+    st.target = null;
+    st.peeking = false;
+  }
+
+  function clearApplied(st) {
+    st.appliedText = null;
+    st.source = null;
+    st.target = null;
+    st.peeking = false;
   }
 
   function pruneStates() {
@@ -109,11 +133,26 @@
     return nodes;
   }
 
-  function combinedText(li) {
+  function snapshot(li) {
     const nodes = collectTextNodes(collectTranslatableRoots(li));
-    let s = "";
-    for (const n of nodes) s += n.nodeValue;
-    return s;
+    return { nodes, text: nodes.map((n) => n.nodeValue).join("") };
+  }
+
+  function canMap(st) {
+    return (
+      st.baseText != null &&
+      st.appliedText != null &&
+      st.baseText.length === st.appliedText.length
+    );
+  }
+
+  function writeNodes(nodes, text) {
+    let at = 0;
+    for (const n of nodes) {
+      const len = (n.nodeValue || "").length;
+      n.nodeValue = text.slice(at, at + len);
+      at += len;
+    }
   }
 
   function setButtonMode(btn, mode) {
@@ -123,23 +162,11 @@
     else btn.textContent = "Latin";
   }
 
-  function newState() {
-    return {
-      saved: null,
-      applied: null,
-      baseSaved: null,
-      manual: false,
-      origDetect: null,
-      displayMode: null,
-      peeking: false
-    };
-  }
-
   function findMsgPanel(li) {
     return li.querySelector('[data-latex-ext="msg-panel"]');
   }
 
-  function placePanel(panel, btn, sep, container) {
+  function placePanel(panel, sep, container) {
     if (!container.contains(panel)) container.prepend(panel);
     if (!sep) {
       sep = document.createElement("div");
@@ -150,16 +177,15 @@
     if (sep.parentNode !== container || panel.nextSibling !== sep) {
       container.insertBefore(sep, panel.nextSibling);
     }
-    void btn;
   }
 
   function refreshLabel(li, btn) {
     const st = stateFor(li);
-    if (st && st.saved && st.displayMode) {
-      setButtonMode(btn, st.displayMode);
+    if (st && st.target && st.appliedText != null) {
+      setButtonMode(btn, st.target);
       return;
     }
-    setButtonMode(btn, Core.detect(combinedText(li)));
+    setButtonMode(btn, Core.detect(snapshot(li).text));
   }
 
   function badgeHost(li) {
@@ -195,200 +221,113 @@
     }
   }
 
-  function nodesMatch(nodes, arr) {
-    return (
-      arr &&
-      nodes.length === arr.length &&
-      nodes.every((n, i) => n.nodeValue === arr[i])
-    );
-  }
+  function applyTransform(li, btn, target, source) {
+    const { nodes, text } = snapshot(li);
+    if (!text.trim()) return null;
 
-  function applyTransform(li, btn, toMode, origDetect) {
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
-    const raw = nodes.map((n) => n.nodeValue).join("");
-    const source = origDetect || Core.detect(raw);
-    const target = toMode || (source === "latin" ? "latex" : "latin");
+    const st = ensureState(li);
+    const showingApplied = st.appliedText != null && text === st.appliedText;
+    if (!showingApplied && text !== st.baseText) rebase(st, text);
+
     const fn = target === "latex" ? Core.encodeToLatex : Core.decodeToLatin;
-    const state = ensureState(li);
-    if (!state.baseSaved) {
-      state.baseSaved = nodes.map((n) => n.nodeValue);
-    }
-    state.saved = nodes.map((n) => n.nodeValue);
     for (const n of nodes) n.nodeValue = fn(n.nodeValue);
-    state.applied = nodes.map((n) => n.nodeValue);
-    state.origDetect = source;
-    state.displayMode = target;
-    setStateFor(li, state);
+
+    st.appliedText = nodes.map((n) => n.nodeValue).join("");
+    st.source = source;
+    st.target = target;
+    st.peeking = false;
+    setStateFor(li, st);
     ensureBadge(li, source);
     if (btn) setButtonMode(btn, target);
     Core.bumpMessages(1);
     if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();
-    return state;
+    return st;
   }
 
-  function restoreBase(li, btn) {
-    const state = stateFor(li);
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
-    const src = state && state.baseSaved;
-    if (src && nodes.length === src.length) {
-      nodes.forEach((n, i) => {
-        n.nodeValue = src[i];
-      });
+  function restore(li, btn) {
+    const st = stateFor(li);
+    if (!st || st.appliedText == null) return false;
+    const { nodes, text } = snapshot(li);
+
+    if (text === st.appliedText && canMap(st)) {
+      writeNodes(nodes, st.baseText);
+    } else if (text !== st.baseText) {
+      rebase(st, text);
+      ensureBadge(li, null);
+      if (btn) refreshLabel(li, btn);
+      return true;
     }
-    if (state) {
-      state.saved = null;
-      state.applied = null;
-      state.baseSaved = null;
-      state.origDetect = null;
-      state.displayMode = null;
-      setStateFor(li, state);
-    }
+
+    clearApplied(st);
+    setStateFor(li, st);
     ensureBadge(li, null);
     if (btn) refreshLabel(li, btn);
-  }
-
-  function isShowingApplied(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied) return false;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    return nodesMatch(nodes, state.applied);
-  }
-
-  function reconcile(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied || state.peeking) return;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    if (nodesMatch(nodes, state.applied)) return;
-    if (state.baseSaved && nodesMatch(nodes, state.baseSaved)) {
-      state.applied = null;
-      state.saved = null;
-      state.baseSaved = null;
-      state.origDetect = null;
-      state.displayMode = null;
-      setStateFor(li, state);
-      ensureBadge(li, null);
-      return;
-    }
-    setStateFor(li, newState());
-    ensureBadge(li, null);
+    return true;
   }
 
   function showBase(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied || !state.baseSaved) return false;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    if (nodes.length !== state.baseSaved.length) return false;
-    nodes.forEach((n, i) => {
-      n.nodeValue = state.baseSaved[i];
-    });
-    state.peeking = true;
+    const st = stateFor(li);
+    if (!st || st.appliedText == null || st.peeking || !canMap(st)) return false;
+    const { nodes, text } = snapshot(li);
+    if (text !== st.appliedText) return false;
+    writeNodes(nodes, st.baseText);
+    st.peeking = true;
     ensureBadge(li, null);
     return true;
   }
 
   function reapply(li) {
-    const state = stateFor(li);
-    if (!state || !state.applied || !state.peeking) return;
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
-    if (nodes.length !== state.applied.length) return;
-    nodes.forEach((n, i) => {
-      n.nodeValue = state.applied[i];
-    });
-    state.peeking = false;
-    ensureBadge(li, state.origDetect);
-  }
-
-  function attachPeek(btn, li) {
-    if (btn._latexExtPeekBound) return;
-    btn._latexExtPeekBound = true;
-    let peekStart = 0;
-    let suppressClick = false;
-    btn.addEventListener("pointerdown", () => {
-      const st = stateFor(li);
-      if (st && st.applied && !st.peeking) {
-        peekStart = Date.now();
-        showBase(li);
-      }
-    });
-    const endPeek = () => {
-      const st = stateFor(li);
-      if (!st || !st.peeking) return;
-      const held = Date.now() - peekStart;
-      reapply(li);
-      if (held >= 250) suppressClick = true;
-      peekStart = 0;
-    };
-    btn.addEventListener("pointerup", endPeek);
-    btn.addEventListener("pointerleave", endPeek);
-    btn.addEventListener("click", (e) => {
-      if (suppressClick) {
-        suppressClick = false;
-        e.preventDefault();
-        e.stopPropagation();
-      }
-    }, true);
+    const st = stateFor(li);
+    if (!st || !st.peeking) return;
+    st.peeking = false;
+    if (st.appliedText == null || !canMap(st)) return;
+    const { nodes, text } = snapshot(li);
+    if (text !== st.baseText) return;
+    writeNodes(nodes, st.appliedText);
+    ensureBadge(li, st.source);
   }
 
   function handleToggle(li, btn) {
-    const state = ensureState(li);
-    const wasManual = state.manual;
-    state.manual = true;
-    setStateFor(li, state);
+    const st = ensureState(li);
+    st.manual = true;
+    setStateFor(li, st);
 
-    if (isShowingApplied(li)) {
-      if (!wasManual) {
-        restoreBase(li, btn);
-        const st = stateFor(li);
-        if (st) {
-          st.manual = true;
-          setStateFor(li, st);
-        }
+    const { text } = snapshot(li);
+    if (!text.trim()) return;
+
+    const showingApplied = st.appliedText != null && text === st.appliedText;
+    if (showingApplied) {
+      if (st.target === "latin" && st.source === "mixed") {
+        applyTransform(li, btn, "latex", st.source);
         return;
       }
-      if (state.origDetect === "mixed" && state.displayMode === "latin") {
-        applyTransform(li, btn, "latex", "mixed");
-        return;
-      }
-      restoreBase(li, btn);
+      restore(li, btn);
       return;
     }
 
-    const roots = collectTranslatableRoots(li);
-    const nodes = collectTextNodes(roots);
-    const raw = nodes.map((n) => n.nodeValue).join("");
-    const detected = Core.detect(raw);
-
-    if (detected === "mixed") {
-      applyTransform(li, btn, "latin", "mixed");
-    } else if (detected === "latex") {
-      applyTransform(li, btn, "latin", "latex");
-    } else {
-      applyTransform(li, btn, "latex", "latin");
-    }
+    const detected = Core.detect(text);
+    if (detected === "latin") applyTransform(li, btn, "latex", "latin");
+    else applyTransform(li, btn, "latin", detected);
   }
 
   function maybeAutoTranslate(li) {
-    if (!Core.settings.message) return;
-    const state = stateFor(li);
-    if (state && (state.manual || state.saved)) return;
-    const raw = combinedText(li);
-    if (!raw.trim()) return;
-    const d = Core.detect(raw);
-    if (d === "latin") return;
-    const btn = li.querySelector('[data-latex-ext="msg"]');
-    applyTransform(li, btn, "latin", d);
+    if (!Core.settings.decode) return;
+    const st = stateFor(li);
+    if (st && (st.manual || st.peeking)) return;
+
+    const { text } = snapshot(li);
+    if (!text.trim()) return;
+    if (st && st.appliedText != null && text === st.appliedText) return;
+
+    const detected = Core.detect(text);
+    if (detected === "latin") return;
+    applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", detected);
   }
 
   function resetMessageDefaults() {
     document.querySelectorAll(MSG_SEL).forEach((li) => {
-      const state = stateFor(li);
-      if (state && (state.saved || state.applied || state.baseSaved)) {
-        restoreBase(li, li.querySelector('[data-latex-ext="msg"]'));
-      }
-      const st = newState();
-      setStateFor(li, st);
+      restore(li, li.querySelector('[data-latex-ext="msg"]'));
+      setStateFor(li, newState());
       ensureBadge(li, null);
       const btn = li.querySelector('[data-latex-ext="msg"]');
       if (btn) refreshLabel(li, btn);
@@ -406,9 +345,8 @@
     let sep = container.querySelector('[data-latex-ext="sep"]');
 
     if (panel && btn) {
-      placePanel(panel, btn, sep, container);
-      const st = stateFor(li);
-      if (!(st && st.saved)) refreshLabel(li, btn);
+      placePanel(panel, sep, container);
+      refreshLabel(li, btn);
       reconcile(li);
       return;
     }
@@ -432,13 +370,17 @@
     btn.dataset.latexExt = "msg";
     btn.title = "Cycle message encoding: Mixed, Latin, Latex";
     btn.setAttribute("aria-label", "Cycle message encoding: Mixed, Latin, Latex");
-    setButtonMode(btn, Core.detect(combinedText(li)));
+    setButtonMode(btn, Core.detect(snapshot(li).text));
+    attachPeek(btn, li);
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
+      if (btn._suppressClick) {
+        btn._suppressClick = false;
+        return;
+      }
       handleToggle(li, btn);
     });
-    attachPeek(btn, li);
     panel.appendChild(btn);
 
     sep = document.createElement("div");
@@ -451,6 +393,41 @@
     ensureState(li);
   }
 
+  function attachPeek(btn, li) {
+    if (btn._latexExtPeekBound) return;
+    btn._latexExtPeekBound = true;
+    let peekStart = 0;
+
+    btn.addEventListener("pointerdown", () => {
+      btn._suppressClick = false;
+      peekStart = 0;
+      if (showBase(li)) peekStart = Date.now();
+    });
+
+    const endPeek = () => {
+      const st = stateFor(li);
+      if (!st || !st.peeking) return;
+      const held = peekStart ? Date.now() - peekStart : 0;
+      reapply(li);
+      if (held >= 250) btn._suppressClick = true;
+      peekStart = 0;
+    };
+    btn.addEventListener("pointerup", endPeek);
+    btn.addEventListener("pointerleave", endPeek);
+  }
+
+  function reconcile(li) {
+    const st = stateFor(li);
+    if (!st) return;
+    const { text } = snapshot(li);
+    if (st.appliedText != null && text === st.appliedText) return;
+    if (st.baseText != null && text === st.baseText) return;
+    rebase(st, text);
+    st.manual = false;
+    setStateFor(li, st);
+    ensureBadge(li, null);
+  }
+
   function scan() {
     Core.injectStyles(Core.BUTTON_CSS);
     pruneStates();
@@ -459,17 +436,13 @@
       reconcile(li);
       maybeAutoTranslate(li);
       const btn = li.querySelector('[data-latex-ext="msg"]');
-      const st = stateFor(li);
-      if (btn && !(st && st.saved)) refreshLabel(li, btn);
+      if (btn) refreshLabel(li, btn);
     });
   }
 
   function onSettingsChanged() {
-    const messageFlag = !!Core.settings.message;
-    if (messageFlag !== lastMessageFlag) {
-      lastMessageFlag = messageFlag;
-      resetMessageDefaults();
-    }
+    if (!Core.settings.decode && lastDecode) resetMessageDefaults();
+    lastDecode = !!Core.settings.decode;
     scheduleScan();
   }
 

@@ -124,47 +124,17 @@
     return "latin";
   }
 
-  function otherMode(mode) {
-    return mode === "latin" ? "latex" : "latin";
-  }
-
-  function translate(text, fromMode) {
-    return fromMode === "latin" ? encodeToLatex(text) : decodeToLatin(text);
-  }
-
-const VERSION = "1.4.0";
+  const VERSION = "1.5.0";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
-    auto: "out",
-    live: true,
-    message: false
+    encode: false,
+    decode: true
   };
 
   const stats = {
     messages: 0
   };
-
-  function setAuto(mode) {
-    if (mode !== "off" && mode !== "in" && mode !== "out" && mode !== "both") return;
-    settings.auto = mode;
-    settings.live = mode === "out" || mode === "both";
-    settings.message = mode === "in" || mode === "both";
-  }
-
-  function cycleAuto(mode) {
-    if (mode === "off") return "in";
-    if (mode === "in") return "out";
-    if (mode === "out") return "both";
-    return "off";
-  }
-
-  function autoLabel(mode) {
-    if (mode === "both") return "Encode and decode";
-    if (mode === "out") return "Encode outgoing only";
-    if (mode === "in") return "Decode incoming only";
-    return "No auto encoding";
-  }
 
   function bumpMessages(n) {
     stats.messages += n == null ? 1 : n;
@@ -177,18 +147,9 @@ const VERSION = "1.4.0";
       const raw = ls.getItem(STORAGE_KEY);
       if (!raw) return;
       const o = JSON.parse(raw);
-      if (o && typeof o === "object") {
-        if (o.auto === "off" || o.auto === "in" || o.auto === "out" || o.auto === "both") {
-          setAuto(o.auto);
-          return;
-        }
-        const live = typeof o.live === "boolean" ? o.live : true;
-        const message = typeof o.message === "boolean" ? o.message : false;
-        if (message && live) setAuto("both");
-        else if (message) setAuto("in");
-        else if (live) setAuto("out");
-        else setAuto("off");
-      }
+      if (!o || typeof o !== "object") return;
+      if (typeof o.encode === "boolean") settings.encode = o.encode;
+      if (typeof o.decode === "boolean") settings.decode = o.decode;
     } catch (_) {}
   }
 
@@ -198,11 +159,7 @@ const VERSION = "1.4.0";
       if (!ls) return;
       ls.setItem(
         STORAGE_KEY,
-        JSON.stringify({
-          auto: settings.auto,
-          live: settings.live,
-          message: settings.message
-        })
+        JSON.stringify({ encode: settings.encode, decode: settings.decode })
       );
     } catch (_) {}
   }
@@ -297,71 +254,8 @@ const VERSION = "1.4.0";
     .latex-ext-btn[data-mode="mixed"] {
       color: #f0b232;
     }
-    .latex-ext-btn[data-state="off"] {
-      color: var(--text-muted, #949ba4);
-    }
-
-    .latex-ext-toggle {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      box-sizing: border-box;
-      height: 24px;
-      padding: 0 8px;
-      border: none;
-      border-radius: 4px;
-      background: transparent;
-      color: var(--interactive-normal, #b5bac1);
-      font-family: var(--font-primary, "gg sans", "Noto Sans", sans-serif);
-      font-size: 12px;
-      font-weight: 600;
-      line-height: 1;
-      letter-spacing: 0.02em;
-      cursor: pointer;
-      user-select: none;
-      white-space: nowrap;
-      flex-shrink: 0;
-      transition: background-color .15s ease, color .15s ease;
-    }
-    .latex-ext-toggle:hover {
-      background: var(--background-modifier-hover, rgba(4, 4, 5, 0.07));
-      color: var(--interactive-hover, #dbdee1);
-    }
-    .latex-ext-toggle:active {
-      background: var(--background-modifier-active, rgba(4, 4, 5, 0.16));
-    }
-    .latex-ext-toggle:focus-visible {
-      outline: 2px solid var(--focus-primary, #00a8fc);
-      outline-offset: 1px;
-    }
-    .latex-ext-toggle[data-mode="disabled"] {
-      color: var(--text-muted, #949ba4);
-    }
-    .latex-ext-toggle[data-mode="disabled"]:hover {
-      color: var(--interactive-hover, #dbdee1);
-      background: var(--background-modifier-hover, rgba(4, 4, 5, 0.07));
-    }
-    .latex-ext-toggle[data-mode="latin"] {
-      color: var(--interactive-normal, #b5bac1);
-    }
-    .latex-ext-toggle[data-mode="latex"] {
+    .latex-ext-btn[data-mode="enabled"] {
       color: var(--text-link, #00a8fc);
-    }
-    .latex-ext-toggle[data-mode="mixed"] {
-      color: #f0b232;
-    }
-    .latex-ext-toggle[data-mode="latex"]:hover {
-      color: var(--text-link, #00a8fc);
-      background: var(--background-modifier-hover, rgba(4, 4, 5, 0.07));
-    }
-
-    .latex-ext-toolbar .latex-ext-toggle {
-      height: 32px;
-      min-width: 32px;
-      padding: 0 16px 0 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 500;
     }
 
     .latex-ext-toolbar .latex-ext-msg-panel {
@@ -410,21 +304,11 @@ const VERSION = "1.4.0";
 
   window.LatexCore = {
     VERSION,
-    MAP,
-    LATEX_CHARS,
-    REVERSE,
     encodeToLatex,
     decodeToLatin,
     detect,
-    otherMode,
-    translate,
     injectStyles,
     notifySettings,
-    loadSettings,
-    saveSettings,
-    setAuto,
-    cycleAuto,
-    autoLabel,
     bumpMessages,
     stats,
     settings,
