@@ -331,7 +331,7 @@ assert(
   C.detect("hello world") === "latin",
   C.detect("hello world")
 );
-assert("version is 1.5.0", C.VERSION === "1.5.0", C.VERSION);
+assert("version is 1.5.1", C.VERSION === "1.5.1", C.VERSION);
 
 /* ================================================================== *
  * 2. Settings model
@@ -382,7 +382,7 @@ delete window.LatexCore;
 window.LatexCore = C;
 assert(
   "core singleton identity restored after the legacy-payload probe",
-  window.LatexCore === C && C.VERSION === "1.5.0" && C.settings.encode === false,
+  window.LatexCore === C && C.VERSION === "1.5.1" && C.settings.encode === false,
   { version: C.VERSION, settings: C.settings }
 );
 assert(
