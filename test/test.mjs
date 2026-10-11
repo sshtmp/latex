@@ -1087,6 +1087,82 @@ assert(
   msgBadge(segMsg)?.textContent
 );
 
+// Discord repaints the message text from its own store (React) right after our
+// transform, wiping the mutation. The translation must be re-applied instead of
+// flashing for a frame and reverting to the previous state.
+function repaintFromStore(li, storeText) {
+  const markup = msgContent(li).querySelector(".markup");
+  const walker = document.createTreeWalker(markup, NodeFilter.SHOW_TEXT);
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n.parentElement && n.parentElement.closest("[data-latex-ext]")) continue;
+    n.nodeValue = storeText;
+    return true;
+  }
+  return false;
+}
+
+const reactMsg = addMessage("Hola mundo");
+await wait(30);
+const reactBtn = msgBtn(reactMsg);
+const reactOriginal = "Hola mundo";
+const reactTranslated = C.encodeToLatex(reactOriginal);
+assert(
+  "store-repaint fixture is latin and untouched on load",
+  msgText(reactMsg) === reactOriginal && !msgBadge(reactMsg),
+  msgText(reactMsg)
+);
+reactBtn.click();
+assert(
+  "click translates the store-repaint fixture",
+  msgText(reactMsg) === reactTranslated,
+  msgText(reactMsg)
+);
+assert(
+  "store-repaint fixture badges the latin source",
+  msgBadge(reactMsg)?.textContent === "(latin)",
+  msgBadge(reactMsg)?.textContent
+);
+assert(
+  "store repaint rewrites the message text",
+  repaintFromStore(reactMsg, reactOriginal) && msgText(reactMsg) === reactOriginal,
+  msgText(reactMsg)
+);
+await wait(30);
+assert(
+  "translation is re-applied after a store repaint (no flash-and-revert)",
+  msgText(reactMsg) === reactTranslated,
+  msgText(reactMsg)
+);
+assert(
+  "badge is re-added after a store repaint",
+  msgBadge(reactMsg)?.textContent === "(latin)",
+  msgBadge(reactMsg)?.textContent
+);
+await wait(200);
+assert(
+  "re-applied translation is stable over time",
+  msgText(reactMsg) === reactTranslated,
+  msgText(reactMsg)
+);
+reactBtn.click();
+assert(
+  "manual restore still wins after a store repaint",
+  msgText(reactMsg) === reactOriginal && !msgBadge(reactMsg),
+  { text: msgText(reactMsg), badge: msgBadge(reactMsg)?.textContent }
+);
+assert(
+  "a store repaint after a manual restore keeps the original",
+  repaintFromStore(reactMsg, reactOriginal),
+  null
+);
+await wait(30);
+assert(
+  "manual override survives a store repaint",
+  msgText(reactMsg) === reactOriginal && !msgBadge(reactMsg),
+  msgText(reactMsg)
+);
+
 // Peek: hold the button to show the original.
 const peekMsg = addMessage("Hola mundo");
 await wait(30);

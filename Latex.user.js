@@ -1244,8 +1244,14 @@
   function reconcile(li) {
     const st = stateFor(li);
     if (!st) return;
-    const { text } = snapshot(li);
+    const { nodes, text } = snapshot(li);
     if (st.appliedText != null && text === st.appliedText) return;
+    if (st.peeking) return;
+    if (st.appliedText != null && text === st.baseText && canMap(st)) {
+      writeNodes(nodes, st.appliedText);
+      ensureBadge(li, st.source);
+      return;
+    }
     if (st.baseText != null && text === st.baseText) return;
     rebase(st, text);
     st.manual = false;
