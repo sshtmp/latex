@@ -11,6 +11,8 @@
   const CONTENT_SEL = '[id^="message-content-"]';
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
+  const TEXT_SKIP_SEL =
+    'pre, code, time, [class*="mention"], [class*="timestamp"]';
   const states = new Map();
   let lastDecode = !!Core.settings.decode;
 
@@ -117,8 +119,9 @@
     return roots;
   }
 
-  function collectTextNodes(roots) {
+  function collectTextNodes(roots, li) {
     const nodes = [];
+    const actions = li ? findActionContainer(li) : null;
     for (const root of roots) {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let n;
@@ -127,6 +130,8 @@
         if (!parent) continue;
         if (parent.closest("[data-latex-ext]")) continue;
         if (parent.closest('[class*="edited"]')) continue;
+        if (parent.closest(TEXT_SKIP_SEL)) continue;
+        if (actions && actions.contains(parent)) continue;
         nodes.push(n);
       }
     }
@@ -134,7 +139,7 @@
   }
 
   function snapshot(li) {
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    const nodes = collectTextNodes(collectTranslatableRoots(li), li);
     return { nodes, text: nodes.map((n) => n.nodeValue).join("") };
   }
 
@@ -157,9 +162,8 @@
 
   function setButtonMode(btn, mode) {
     btn.dataset.mode = mode;
-    if (mode === "latex") btn.textContent = "Latex";
-    else if (mode === "mixed") btn.textContent = "Mixed";
-    else btn.textContent = "Latin";
+    const label = mode === "latex" ? "Latex" : mode === "mixed" ? "Mixed" : "Latin";
+    if (btn.textContent !== label) btn.textContent = label;
   }
 
   function findMsgPanel(li) {
@@ -214,7 +218,7 @@
     }
     badge.textContent = "(" + sourceMode + ")";
     const edited = host.querySelector('[class*="edited"]');
-    if (edited) {
+    if (edited && edited.parentNode === host) {
       if (badge.nextSibling !== edited) host.insertBefore(badge, edited);
     } else if (badge.parentNode !== host || host.lastElementChild !== badge) {
       host.appendChild(badge);
@@ -321,6 +325,7 @@
 
     const detected = Core.detect(text);
     if (detected === "latin") return;
+    if (Core.countLatex(text) < 2) return;
     applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", detected);
   }
 
@@ -414,6 +419,7 @@
     };
     btn.addEventListener("pointerup", endPeek);
     btn.addEventListener("pointerleave", endPeek);
+    btn.addEventListener("pointercancel", endPeek);
   }
 
   function reconcile(li) {
@@ -472,6 +478,10 @@
 
   function mutationRelevant(m) {
     const t = m.target;
+    if (m.type === "characterData") {
+      const el = t && t.parentElement;
+      return !!(el && el.closest && el.closest(MSG_SEL));
+    }
     if (t && t.nodeType === 1 && t.closest && t.closest(MSG_SEL)) return true;
     const check = (n) => {
       if (!n || n.nodeType !== 1) return false;
@@ -494,7 +504,8 @@
     if (ms.some(mutationRelevant)) scheduleScan();
   }).observe(document.documentElement, {
     childList: true,
-    subtree: true
+    subtree: true,
+    characterData: true
   });
   window.__latexExtMessagesScan = scan;
   if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();

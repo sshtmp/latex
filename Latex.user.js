@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.5.1
+// @version      1.6.0
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -75,7 +75,7 @@
 
   const COMBINING_RE = /\p{M}+/gu;
   const PROTECT_RE =
-    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
+    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z][a-zA-Z0-9_+-]*:)/g;
 
   function stripDiacritics(ch) {
     return ch.normalize("NFD").replace(COMBINING_RE, "");
@@ -108,7 +108,7 @@
       } else if (base.length === 0) {
         out += ch;
       } else {
-        for (const b of base) out += MAP[b] !== undefined ? MAP[b] : b;
+        out += ch;
       }
     }
     return out;
@@ -139,6 +139,12 @@
     if (latex > 0 && latin > 0) return "mixed";
     if (latex > 0) return "latex";
     return "latin";
+  }
+
+  function countLatex(text) {
+    let n = 0;
+    for (const ch of text) if (LATEX_CHARS.has(ch)) n++;
+    return n;
   }
 
   const VERSION = "1.5.1";
@@ -324,6 +330,7 @@
     encodeToLatex,
     decodeToLatin,
     detect,
+    countLatex,
     injectStyles,
     notifySettings,
     bumpMessages,
@@ -346,6 +353,25 @@
     '[data-slate-editor="true"], [role="textbox"][contenteditable="true"]';
   const SKIP_SEL =
     "[data-slate-spacer], [data-slate-zero-width], [class*='hiddenVisually'], [aria-hidden='true']";
+  const SEND_LABEL_KEYWORDS = [
+    "send",
+    "enviar",
+    "envoyer",
+    "verzenden",
+    "invia",
+    "wyślij",
+    "wyslij",
+    "gönder",
+    "gonder",
+    "отправ",
+    "送信",
+    "보내",
+    "发送",
+    "傳",
+    "إرسال",
+    "senta",
+    "envia"
+  ];
   let bound = false;
 
   function isComposerEditor(editor) {
@@ -633,7 +659,8 @@
 
   function scheduleSendClear(editor) {
     [0, 50, 150, 400, 800].forEach((ms) => setTimeout(() => {
-      if (editor.isConnected) clearAfterSend(editor);
+      const ed = editor.isConnected ? editor : composerEditor();
+      if (ed) clearAfterSend(ed);
     }, ms));
   }
 
@@ -655,9 +682,10 @@
     window.addEventListener(
       "keydown",
       (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
         if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
         const k = e.key || "";
-        if (k !== "L" && k !== "l") return;
+        if (e.code !== "KeyL" && k !== "L" && k !== "l") return;
         if (!composerEditor()) return;
         e.preventDefault();
         toggleEncode();
@@ -668,6 +696,7 @@
     window.addEventListener(
       "keydown",
       (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
         if (
           e.key !== "Enter" ||
           e.shiftKey ||
@@ -688,6 +717,7 @@
     window.addEventListener(
       "mousedown",
       (e) => {
+        if (e.button !== 0) return;
         const el = e.target;
         if (!(el instanceof Element)) return;
         const btn = el.closest("button, [role='button']");
@@ -695,8 +725,7 @@
         const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
         const isSend =
           btn.matches('button[type="submit"]') ||
-          aria.includes("send") ||
-          aria.includes("enviar");
+          SEND_LABEL_KEYWORDS.some((kw) => aria.includes(kw));
         if (!isSend) return;
         const scope =
           btn.closest("form") || btn.closest('[class*="channelTextArea"]');
@@ -836,6 +865,8 @@
   const CONTENT_SEL = '[id^="message-content-"]';
   const REPLY_SEL =
     '[class*="repliedMessage"], [class*="replied" i], [class*="replyBar"], [class*="messageReply"]';
+  const TEXT_SKIP_SEL =
+    'pre, code, time, [class*="mention"], [class*="timestamp"]';
   const states = new Map();
   let lastDecode = !!Core.settings.decode;
 
@@ -942,8 +973,9 @@
     return roots;
   }
 
-  function collectTextNodes(roots) {
+  function collectTextNodes(roots, li) {
     const nodes = [];
+    const actions = li ? findActionContainer(li) : null;
     for (const root of roots) {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let n;
@@ -952,6 +984,8 @@
         if (!parent) continue;
         if (parent.closest("[data-latex-ext]")) continue;
         if (parent.closest('[class*="edited"]')) continue;
+        if (parent.closest(TEXT_SKIP_SEL)) continue;
+        if (actions && actions.contains(parent)) continue;
         nodes.push(n);
       }
     }
@@ -959,7 +993,7 @@
   }
 
   function snapshot(li) {
-    const nodes = collectTextNodes(collectTranslatableRoots(li));
+    const nodes = collectTextNodes(collectTranslatableRoots(li), li);
     return { nodes, text: nodes.map((n) => n.nodeValue).join("") };
   }
 
@@ -982,9 +1016,8 @@
 
   function setButtonMode(btn, mode) {
     btn.dataset.mode = mode;
-    if (mode === "latex") btn.textContent = "Latex";
-    else if (mode === "mixed") btn.textContent = "Mixed";
-    else btn.textContent = "Latin";
+    const label = mode === "latex" ? "Latex" : mode === "mixed" ? "Mixed" : "Latin";
+    if (btn.textContent !== label) btn.textContent = label;
   }
 
   function findMsgPanel(li) {
@@ -1039,7 +1072,7 @@
     }
     badge.textContent = "(" + sourceMode + ")";
     const edited = host.querySelector('[class*="edited"]');
-    if (edited) {
+    if (edited && edited.parentNode === host) {
       if (badge.nextSibling !== edited) host.insertBefore(badge, edited);
     } else if (badge.parentNode !== host || host.lastElementChild !== badge) {
       host.appendChild(badge);
@@ -1146,6 +1179,7 @@
 
     const detected = Core.detect(text);
     if (detected === "latin") return;
+    if (Core.countLatex(text) < 2) return;
     applyTransform(li, li.querySelector('[data-latex-ext="msg"]'), "latin", detected);
   }
 
@@ -1239,6 +1273,7 @@
     };
     btn.addEventListener("pointerup", endPeek);
     btn.addEventListener("pointerleave", endPeek);
+    btn.addEventListener("pointercancel", endPeek);
   }
 
   function reconcile(li) {
@@ -1297,6 +1332,10 @@
 
   function mutationRelevant(m) {
     const t = m.target;
+    if (m.type === "characterData") {
+      const el = t && t.parentElement;
+      return !!(el && el.closest && el.closest(MSG_SEL));
+    }
     if (t && t.nodeType === 1 && t.closest && t.closest(MSG_SEL)) return true;
     const check = (n) => {
       if (!n || n.nodeType !== 1) return false;
@@ -1319,7 +1358,8 @@
     if (ms.some(mutationRelevant)) scheduleScan();
   }).observe(document.documentElement, {
     childList: true,
-    subtree: true
+    subtree: true,
+    characterData: true
   });
   window.__latexExtMessagesScan = scan;
   if (window.__latexExtBulkRefresh) window.__latexExtBulkRefresh();

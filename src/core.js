@@ -58,7 +58,7 @@
 
   const COMBINING_RE = /\p{M}+/gu;
   const PROTECT_RE =
-    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z0-9_+-]+:)/g;
+    /(`{3}[\s\S]*?`{3})|(`[^`\n]*`)|(https?:\/\/[^\s<>"']+)|(www\.[^\s<>"']+)|(<@[!&]?\d+>)|(<#\d+>)|(<t:\d+(?::[A-Za-z])?>)|(<a?:[a-zA-Z0-9_]+:\d+>)|(:[a-zA-Z][a-zA-Z0-9_+-]*:)/g;
 
   function stripDiacritics(ch) {
     return ch.normalize("NFD").replace(COMBINING_RE, "");
@@ -91,7 +91,7 @@
       } else if (base.length === 0) {
         out += ch;
       } else {
-        for (const b of base) out += MAP[b] !== undefined ? MAP[b] : b;
+        out += ch;
       }
     }
     return out;
@@ -122,6 +122,12 @@
     if (latex > 0 && latin > 0) return "mixed";
     if (latex > 0) return "latex";
     return "latin";
+  }
+
+  function countLatex(text) {
+    let n = 0;
+    for (const ch of text) if (LATEX_CHARS.has(ch)) n++;
+    return n;
   }
 
   const VERSION = "1.5.1";
@@ -307,6 +313,7 @@
     encodeToLatex,
     decodeToLatin,
     detect,
+    countLatex,
     injectStyles,
     notifySettings,
     bumpMessages,

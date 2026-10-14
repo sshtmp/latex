@@ -11,6 +11,25 @@
     '[data-slate-editor="true"], [role="textbox"][contenteditable="true"]';
   const SKIP_SEL =
     "[data-slate-spacer], [data-slate-zero-width], [class*='hiddenVisually'], [aria-hidden='true']";
+  const SEND_LABEL_KEYWORDS = [
+    "send",
+    "enviar",
+    "envoyer",
+    "verzenden",
+    "invia",
+    "wyślij",
+    "wyslij",
+    "gönder",
+    "gonder",
+    "отправ",
+    "送信",
+    "보내",
+    "发送",
+    "傳",
+    "إرسال",
+    "senta",
+    "envia"
+  ];
   let bound = false;
 
   function isComposerEditor(editor) {
@@ -298,7 +317,8 @@
 
   function scheduleSendClear(editor) {
     [0, 50, 150, 400, 800].forEach((ms) => setTimeout(() => {
-      if (editor.isConnected) clearAfterSend(editor);
+      const ed = editor.isConnected ? editor : composerEditor();
+      if (ed) clearAfterSend(ed);
     }, ms));
   }
 
@@ -320,9 +340,10 @@
     window.addEventListener(
       "keydown",
       (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
         if (!(e.ctrlKey || e.metaKey) || !e.shiftKey) return;
         const k = e.key || "";
-        if (k !== "L" && k !== "l") return;
+        if (e.code !== "KeyL" && k !== "L" && k !== "l") return;
         if (!composerEditor()) return;
         e.preventDefault();
         toggleEncode();
@@ -333,6 +354,7 @@
     window.addEventListener(
       "keydown",
       (e) => {
+        if (e.isComposing || e.keyCode === 229) return;
         if (
           e.key !== "Enter" ||
           e.shiftKey ||
@@ -353,6 +375,7 @@
     window.addEventListener(
       "mousedown",
       (e) => {
+        if (e.button !== 0) return;
         const el = e.target;
         if (!(el instanceof Element)) return;
         const btn = el.closest("button, [role='button']");
@@ -360,8 +383,7 @@
         const aria = (btn.getAttribute("aria-label") || "").toLowerCase();
         const isSend =
           btn.matches('button[type="submit"]') ||
-          aria.includes("send") ||
-          aria.includes("enviar");
+          SEND_LABEL_KEYWORDS.some((kw) => aria.includes(kw));
         if (!isSend) return;
         const scope =
           btn.closest("form") || btn.closest('[class*="channelTextArea"]');

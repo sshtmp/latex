@@ -333,6 +333,32 @@ assert(
 );
 assert("version is 1.5.1", C.VERSION === "1.5.1", C.VERSION);
 
+// Regression (encodeChunk passthrough + letter-first shortcode PROTECT_RE):
+// scripts the map does not cover pass through 1:1 (no length drift), every
+// digit still encodes with colons left intact, and a letter-first emoji
+// shortcode stays protected in both directions.
+assert(
+  "encode passthrough keeps Hangul 1:1 with the same length",
+  C.encodeToLatex("안녕") === "안녕" &&
+    C.encodeToLatex("안녕").length === "안녕".length,
+  { got: C.encodeToLatex("안녕"), len: C.encodeToLatex("안녕").length }
+);
+assert(
+  "encode maps every digit and leaves colons intact",
+  C.encodeToLatex("12:30:45") === "●▬:▲◀:■▱",
+  C.encodeToLatex("12:30:45")
+);
+assert(
+  "encode preserves the string length of digit/colon input",
+  C.encodeToLatex("12:30:45").length === "12:30:45".length,
+  { got: C.encodeToLatex("12:30:45").length, want: "12:30:45".length }
+);
+assert(
+  "decode keeps a letter-first shortcode while decoding around it",
+  C.decodeToLatin("µ⌐Œσ :sob:") === "hola :sob:",
+  C.decodeToLatin("µ⌐Œσ :sob:")
+);
+
 /* ================================================================== *
  * 2. Settings model
  * ================================================================== */
@@ -1346,6 +1372,62 @@ assert(
   null
 );
 await wait(20);
+
+/* ================================================================== *
+ * 9. Incoming-message regressions: auto-decode gate + peek cancel
+ *
+ * Placed last on purpose: these add fixtures that bump Core.stats.messages,
+ * and the stats assertion lives in section 8 (above), so ordering is safe.
+ * ================================================================== */
+
+// R6 - maybeAutoTranslate must require at least two latex symbols. A lone
+// glyph (the ¥ that stands in for "Y") must leave the message untouched.
+const gateSingle = addMessage("It costs ¥100");
+await wait(30);
+assert(
+  "auto-decode gate: a single latex symbol does not decode the message",
+  msgText(gateSingle) === "It costs ¥100",
+  { text: msgText(gateSingle), countLatex: C.countLatex("It costs ¥100") }
+);
+assert(
+  "auto-decode gate: a single latex symbol gets no badge",
+  !msgBadge(gateSingle),
+  msgBadge(gateSingle)?.textContent
+);
+
+// Two latex symbols is the exact boundary where auto-decoding kicks in.
+const gateDouble = addMessage("Φ∩ hola");
+await wait(30);
+assert(
+  "auto-decode gate: two latex symbols decode at the boundary",
+  msgText(gateDouble) === C.decodeToLatin("Φ∩ hola"),
+  { text: msgText(gateDouble), want: C.decodeToLatin("Φ∩ hola") }
+);
+assert(
+  "auto-decode gate: two latex symbols get a (mixed) badge",
+  msgBadge(gateDouble)?.textContent === "(mixed)",
+  msgBadge(gateDouble)?.textContent
+);
+
+// R7 - pointercancel ends a peek so the message snaps back to its translated
+// form with the badge instead of staying stuck on the base text.
+gateDouble.querySelector('[data-latex-ext="msg"]').dispatchEvent(
+  pointer("pointerdown")
+);
+assert(
+  "pointercancel test: pointerdown peeks the base text",
+  msgText(gateDouble) === "Φ∩ hola" && !msgBadge(gateDouble),
+  { text: msgText(gateDouble), badge: msgBadge(gateDouble)?.textContent }
+);
+gateDouble
+  .querySelector('[data-latex-ext="msg"]')
+  .dispatchEvent(pointer("pointercancel"));
+assert(
+  "pointercancel ends the peek and restores the translation",
+  msgText(gateDouble) === C.decodeToLatin("Φ∩ hola") &&
+    msgBadge(gateDouble)?.textContent === "(mixed)",
+  { text: msgText(gateDouble), badge: msgBadge(gateDouble)?.textContent }
+);
 
 console.log(JSON.stringify(results, null, 2));
 const fails = Object.entries(results).filter(([, v]) => String(v).startsWith("FAIL"));
