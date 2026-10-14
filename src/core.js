@@ -130,7 +130,7 @@
     return n;
   }
 
-  const VERSION = "1.5.1";
+  const VERSION = "1.6.1";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {

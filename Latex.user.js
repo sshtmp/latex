@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Latex
 // @namespace    https://github.com/sshtmp/latex
-// @version      1.6.0
+// @version      1.6.1
 // @description  Latin/Latex (Changed-style) encoder for Discord web
 // @author       sshtmp
 // @match        https://discord.com/*
@@ -147,7 +147,7 @@
     return n;
   }
 
-  const VERSION = "1.5.1";
+  const VERSION = "1.6.1";
   const STORAGE_KEY = "latex-ext-settings";
 
   const settings = {
